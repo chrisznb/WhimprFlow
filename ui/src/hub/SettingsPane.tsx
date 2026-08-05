@@ -43,10 +43,11 @@ function KeyField({
 }: {
   label: string;
   configured: boolean;
-  onSave: (key: string) => void;
+  onSave: (key: string) => Promise<string | null>;
 }) {
   const [value, setValue] = useState("");
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 13, marginBottom: 7, display: "flex", alignItems: "center", color: theme.textBody }}>
@@ -76,15 +77,27 @@ function KeyField({
         />
         <Button
           onClick={() => {
-            onSave(value);
-            setValue("");
-            setSaved(true);
+            setError(null);
+            setSaved(false);
+            void onSave(value).then((err) => {
+              if (err) {
+                setError(err);
+              } else {
+                setValue("");
+                setSaved(true);
+              }
+            });
           }}
         >
           Save
         </Button>
       </div>
-      {saved && <div style={{ fontSize: 12, color: theme.accentDeep, marginTop: 6 }}>Saved to keychain ✓</div>}
+      {saved && <div style={{ fontSize: 12, color: theme.accentDeep, marginTop: 6 }}>Saved to keychain</div>}
+      {error && (
+        <div style={{ fontSize: 12, color: "#C0392B", marginTop: 6 }}>
+          Not saved: {error}
+        </div>
+      )}
     </div>
   );
 }
@@ -210,11 +223,10 @@ export function SettingsPane({
         <KeyField
           label="OpenAI API key"
           configured={status.has_openai_key}
-          onSave={(k) => {
-            void setApiKey("openai", k).then((err) => {
-              if (err) window.alert("Key wurde NICHT gespeichert: " + err);
-              setTimeout(refresh, 400);
-            });
+          onSave={async (k) => {
+            const err = await setApiKey("openai", k);
+            setTimeout(refresh, 400);
+            return err;
           }}
         />
         <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
@@ -268,11 +280,10 @@ export function SettingsPane({
         <KeyField
           label="Anthropic API key"
           configured={status.has_anthropic_key}
-          onSave={(k) => {
-            void setApiKey("anthropic", k).then((err) => {
-              if (err) window.alert("Key wurde NICHT gespeichert: " + err);
-              setTimeout(refresh, 400);
-            });
+          onSave={async (k) => {
+            const err = await setApiKey("anthropic", k);
+            setTimeout(refresh, 400);
+            return err;
           }}
         />
       </Card>

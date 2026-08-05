@@ -291,3 +291,37 @@ export async function setTransforms(list: Transform[]): Promise<void> {
     /* browser preview — no-op */
   }
 }
+
+// ── Voice profile ───────────────────────────────────────────────────────────
+export interface VoiceProfile {
+  profile_text: string;
+  catchphrase: string;
+  most_used_word: string;
+  most_corrected_word: string;
+  peak_time: string;
+  generated_at_words: number;
+  total_words: number;
+  regen_after_words: number;
+}
+
+export async function getVoiceProfile(force = false): Promise<VoiceProfile | null> {
+  try {
+    return await invoke<VoiceProfile>("get_voice_profile", { force });
+  } catch {
+    return null;
+  }
+}
+
+// ── Assistant ───────────────────────────────────────────────────────────────
+export interface AssistantResult {
+  reply: string;
+  actions_done: string[];
+}
+
+export async function assistantChat(history: [string, string][]): Promise<AssistantResult | null> {
+  try {
+    return await invoke<AssistantResult>("assistant_chat", { history });
+  } catch {
+    return null;
+  }
+}

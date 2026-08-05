@@ -340,6 +340,16 @@ fn get_settings() -> whimpr_core::Settings {
 }
 
 #[tauri::command]
+fn assistant_chat(history: Vec<(String, String)>) -> serde_json::Value {
+    hotkey::assistant_chat(history)
+}
+
+#[tauri::command]
+fn get_voice_profile(force: bool) -> serde_json::Value {
+    hotkey::voice_profile(force)
+}
+
+#[tauri::command]
 fn get_orientation() -> bool {
     overlay_vertical()
 }
@@ -533,14 +543,39 @@ fn set_api_key(provider: String, key: String) -> Result<(), String> {
         "anthropic" => "anthropic_api_key",
         _ => return Err(format!("unknown provider {provider}")),
     };
-    let entry =
-        keyring::Entry::new("com.whimpr.whimprflow", account).map_err(|e| e.to_string())?;
     let key = key.trim();
-    // Delete any existing item first so the new one is created by (and readable to)
-    // this app — a key added via the `security` CLI isn't readable by the app.
-    let _ = entry.delete_credential();
-    if !key.is_empty() {
-        entry.set_password(key).map_err(|e| e.to_string())?;
+    // The macOS data-protection keychain (used by the keyring crate) needs an
+    // entitlement our re-signed build doesn't carry, so writes fail silently.
+    // The `security` CLI writes to the classic login keychain instead, and -T
+    // grants this binary prompt-free read access.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("/usr/bin/security")
+            .args(["delete-generic-password", "-s", "com.whimpr.whimprflow", "-a", account])
+            .output();
+        if !key.is_empty() {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let out = std::process::Command::new("/usr/bin/security")
+                .arg("add-generic-password")
+                .args(["-U", "-s", "com.whimpr.whimprflow", "-a", account, "-w", key])
+                .arg("-T")
+                .arg(&exe)
+                .args(["-T", "/usr/bin/security"])
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let entry =
+            keyring::Entry::new("com.whimpr.whimprflow", account).map_err(|e| e.to_string())?;
+        let _ = entry.delete_credential();
+        if !key.is_empty() {
+            entry.set_password(key).map_err(|e| e.to_string())?;
+        }
     }
     hotkey::rebuild_providers();
     Ok(())
@@ -559,6 +594,8 @@ pub fn run() {
             get_settings,
             set_settings,
             get_orientation,
+            get_voice_profile,
+            assistant_chat,
             get_snippets,
             add_snippet,
             remove_snippet,

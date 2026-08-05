@@ -10,6 +10,7 @@ import { SnippetsPane } from "./SnippetsPane";
 import { StylePane } from "./StylePane";
 import { TransformsPane } from "./TransformsPane";
 import { ScratchpadPane } from "./ScratchpadPane";
+import { AssistantPane } from "./AssistantPane";
 import { SettingsPane } from "./SettingsPane";
 import { Help } from "./Help";
 import { ComingSoon } from "./ComingSoon";
@@ -72,6 +73,7 @@ export function App() {
       <main style={{ flex: 1, minWidth: 0, overflowY: "auto" }}>
         <div key={page} className="wf-fade" style={{ padding: "36px 44px", margin: "0 auto", maxWidth: 1120 }}>
           {page === "home" && <Home />}
+          {page === "assistant" && <AssistantPane />}
           {page === "insights" && <Insights />}
           {page === "dictionary" && <DictionaryPane />}
           {page === "snippets" && <SnippetsPane />}

@@ -453,6 +453,20 @@ return acted"#,
                 return Some(k);
             }
         }
+        // Login keychain via the security CLI (matches how set_api_key stores
+        // it); the keyring crate's data-protection keychain is a fallback for
+        // items created by older builds.
+        if let Ok(out) = std::process::Command::new("/usr/bin/security")
+            .args(["find-generic-password", "-s", "com.whimpr.whimprflow", "-a", account, "-w"])
+            .output()
+        {
+            if out.status.success() {
+                let k = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !k.is_empty() {
+                    return Some(k);
+                }
+            }
+        }
         keyring::Entry::new("com.whimpr.whimprflow", account)
             .ok()
             .and_then(|e| e.get_password().ok())
@@ -1125,6 +1139,342 @@ return acted"#,
         event
     }
 
+    // --- In-app assistant ("Ask Whimpr") ----------------------------------
+
+    const ASSISTANT_SYSTEM: &str = r#"You are Whimpr, the assistant inside the WhimprFlow dictation app. You chat naturally in the user's language (usually German) and you can change the app's data when asked.
+
+To perform actions, reply with EXACTLY this JSON shape and nothing else:
+{"reply":"<your short answer to the user>","actions":[...]}
+
+Supported actions:
+- {"type":"add_snippet","trigger":"<spoken phrase>","replacement":"<text it expands to>"}
+- {"type":"remove_snippet","trigger":"<spoken phrase>"}
+- {"type":"add_dictionary","correct":"<correct spelling>","mishears":["<misheard as>", ...]}
+- {"type":"append_scratchpad","text":"<text to append>"}
+
+Rules: only include actions the user clearly asked for; use an empty actions array for plain conversation; never invent personal data; keep replies short and concrete. Always return valid JSON, no markdown fences."#;
+
+    /// One assistant turn: history in, {reply, actions_done} out. Actions the
+    /// model requests are executed against the real stores.
+    pub fn assistant_chat(history: Vec<(String, String)>) -> serde_json::Value {
+        let settings = current_settings();
+        let mut messages: Vec<(String, String)> =
+            vec![("system".to_string(), ASSISTANT_SYSTEM.to_string())];
+        messages.extend(history);
+
+        let raw = read_openai_key()
+            .and_then(|key| {
+                whimpr_cleanup::chat_completion_messages(
+                    &settings.openai_base_url,
+                    &key,
+                    &settings.openai_model,
+                    &messages,
+                )
+                .map_err(|e| eprintln!("[whimpr] assistant cloud failed: {e}"))
+                .ok()
+            })
+            .or_else(|| {
+                LOCAL.get().and_then(|m| {
+                    m.lock().unwrap().as_mut().and_then(|w| {
+                        let msgs: Vec<whimpr_core::cleanup::CleanupMsg> = messages
+                            .iter()
+                            .map(|(role, content)| whimpr_core::cleanup::CleanupMsg {
+                                role: match role.as_str() {
+                                    "system" => "system",
+                                    "assistant" => "assistant",
+                                    _ => "user",
+                                },
+                                content: content.clone(),
+                            })
+                            .collect();
+                        w.cleanup(&msgs).ok()
+                    })
+                })
+            });
+
+        let Some(raw) = raw else {
+            return serde_json::json!({
+                "reply": "No language model available. Add an API key in Settings or install the local model.",
+                "actions_done": [],
+            });
+        };
+
+        // Model may wrap JSON in fences or slip into plain text; handle both.
+        let cleaned = raw
+            .trim()
+            .trim_start_matches("```json")
+            .trim_start_matches("```")
+            .trim_end_matches("```")
+            .trim()
+            .to_string();
+        let parsed: Option<serde_json::Value> = serde_json::from_str(&cleaned).ok().or_else(|| {
+            let start = cleaned.find('{')?;
+            let end = cleaned.rfind('}')?;
+            serde_json::from_str(&cleaned[start..=end]).ok()
+        });
+
+        let Some(v) = parsed else {
+            return serde_json::json!({ "reply": cleaned, "actions_done": [] });
+        };
+        let reply = v
+            .get("reply")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut done: Vec<String> = Vec::new();
+        if let Some(actions) = v.get("actions").and_then(|a| a.as_array()) {
+            for a in actions {
+                match a.get("type").and_then(|t| t.as_str()) {
+                    Some("add_snippet") => {
+                        let (Some(t), Some(r)) = (
+                            a.get("trigger").and_then(|x| x.as_str()),
+                            a.get("replacement").and_then(|x| x.as_str()),
+                        ) else {
+                            continue;
+                        };
+                        snippets_add(t.to_string(), r.to_string());
+                        done.push(format!("Snippet: \"{t}\""));
+                    }
+                    Some("remove_snippet") => {
+                        if let Some(t) = a.get("trigger").and_then(|x| x.as_str()) {
+                            snippets_remove(t);
+                            done.push(format!("Snippet removed: \"{t}\""));
+                        }
+                    }
+                    Some("add_dictionary") => {
+                        let Some(c) = a.get("correct").and_then(|x| x.as_str()) else {
+                            continue;
+                        };
+                        let mishears: Vec<String> = a
+                            .get("mishears")
+                            .and_then(|m| m.as_array())
+                            .map(|m| {
+                                m.iter()
+                                    .filter_map(|x| x.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        dictionary_add(c.to_string(), mishears);
+                        done.push(format!("Dictionary: {c}"));
+                    }
+                    Some("append_scratchpad") => {
+                        if let Some(t) = a.get("text").and_then(|x| x.as_str()) {
+                            let mut cur = scratchpad_get();
+                            if !cur.is_empty() && !cur.ends_with('\n') {
+                                cur.push('\n');
+                            }
+                            cur.push_str(t);
+                            cur.push('\n');
+                            scratchpad_set(&cur);
+                            done.push("Scratchpad updated".to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        serde_json::json!({ "reply": reply, "actions_done": done })
+    }
+
+    // --- Voice profile (Insights -> Your Voice) ---------------------------
+
+    fn voice_profile_path() -> PathBuf {
+        support_dir().join("voice-profile.json")
+    }
+
+    /// Regenerate every N new words, like the original's "next update in ...".
+    const VOICE_REGEN_WORDS: u64 = 20_000;
+
+    pub fn voice_profile(force: bool) -> serde_json::Value {
+        let stats = STATS
+            .get()
+            .map(|s| s.lock().unwrap().clone())
+            .unwrap_or_default();
+        let total_words: u64 = stats.sessions.iter().map(|s| s.words as u64).sum();
+
+        if !force {
+            if let Ok(txt) = std::fs::read_to_string(voice_profile_path()) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) {
+                    let gen_at = v.get("generated_at_words").and_then(|x| x.as_u64()).unwrap_or(0);
+                    if total_words < gen_at + VOICE_REGEN_WORDS {
+                        let mut v = v;
+                        v["total_words"] = total_words.into();
+                        return v;
+                    }
+                }
+            }
+        }
+
+        // --- Pure-Rust analysis over all session texts ---
+        let texts: Vec<&str> = stats.sessions.iter().map(|s| s.text.as_str()).collect();
+        let mut word_freq: std::collections::HashMap<String, u32> = Default::default();
+        let mut ngram_freq: std::collections::HashMap<String, u32> = Default::default();
+        for t in &texts {
+            let words: Vec<String> = t
+                .split_whitespace()
+                .map(|w| {
+                    w.trim_matches(|c: char| c.is_ascii_punctuation() || c == '\u{201e}' || c == '\u{201c}')
+                        .to_lowercase()
+                })
+                .filter(|w| !w.is_empty())
+                .collect();
+            for w in &words {
+                if w.chars().count() > 2 {
+                    *word_freq.entry(w.clone()).or_default() += 1;
+                }
+            }
+            for n in 3..=4 {
+                for win in words.windows(n) {
+                    let g = win.join(" ");
+                    if g.chars().count() >= 10 {
+                        *ngram_freq.entry(g).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let most_used = word_freq
+            .iter()
+            .max_by_key(|(_, c)| **c)
+            .map(|(w, _)| w.clone())
+            .unwrap_or_default();
+        let catchphrase = ngram_freq
+            .iter()
+            .filter(|(_, c)| **c >= 3)
+            .max_by_key(|(g, c)| (**c, g.len()))
+            .map(|(g, _)| g.clone())
+            .unwrap_or_else(|| most_used.clone());
+
+        // Peak time: weekday+hour bucket with the most sessions (local time).
+        let mut buckets: std::collections::HashMap<(u32, u32), u32> = Default::default();
+        for sess in &stats.sessions {
+            let secs = sess.ts_unix as i64 + tz_offset_secs();
+            let days = secs.div_euclid(86_400);
+            let weekday = ((days + 4).rem_euclid(7)) as u32; // 1970-01-01 was a Thursday
+            let hour = (secs.rem_euclid(86_400) / 3600) as u32;
+            *buckets.entry((weekday, hour)).or_default() += 1;
+        }
+        const DAYS: [&str; 7] = [
+            "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+        ];
+        let peak = buckets
+            .iter()
+            .max_by_key(|(_, c)| **c)
+            .map(|((d, h), _)| {
+                let ampm = if *h < 12 { "a.m." } else { "p.m." };
+                let h12 = if *h % 12 == 0 { 12 } else { *h % 12 };
+                format!("{} at {} {}", DAYS[*d as usize % 7], h12, ampm)
+            })
+            .unwrap_or_default();
+
+        // Most corrected word: the dictionary entry with the most mishears.
+        let most_corrected = DICTIONARY
+            .get()
+            .map(|d| d.lock().unwrap().entries.clone())
+            .unwrap_or_default()
+            .into_iter()
+            .max_by_key(|e| e.mishears.len())
+            .filter(|e| !e.mishears.is_empty())
+            .map(|e| e.correct)
+            .unwrap_or_default();
+
+        // Top apps for the LLM context.
+        let mut app_freq: std::collections::HashMap<String, u32> = Default::default();
+        for sess in &stats.sessions {
+            if let Some(a) = &sess.app {
+                *app_freq.entry(a.clone()).or_default() += 1;
+            }
+        }
+        let mut apps: Vec<(String, u32)> = app_freq.into_iter().collect();
+        apps.sort_by_key(|(_, c)| std::cmp::Reverse(*c));
+        let top_apps: Vec<String> = apps.into_iter().take(3).map(|(a, _)| a).collect();
+
+        // LLM profile text (cloud if configured, else local worker).
+        let sample: String = texts
+            .iter()
+            .rev()
+            .take(40)
+            .map(|t| format!("- {t}\n"))
+            .collect();
+        let system = "You write the short 'voice profile' blurb for a dictation app's \
+                      insights page. From the user's recent dictations, describe in 2-3 \
+                      sentences what they use their voice for and how they communicate, \
+                      in the style 'Voice is where you ...'. Write in the dominant \
+                      language of the samples. Return only the profile text.";
+        let user_msg = format!(
+            "Most-used apps: {}\nRecent dictations:\n{}",
+            top_apps.join(", "),
+            sample
+        );
+        let settings = current_settings();
+        let profile_text = read_openai_key()
+            .and_then(|key| {
+                whimpr_cleanup::chat_completion(
+                    &settings.openai_base_url,
+                    &key,
+                    &settings.openai_model,
+                    system,
+                    &user_msg,
+                )
+                .map_err(|e| eprintln!("[whimpr] voice profile via cloud failed: {e}"))
+                .ok()
+            })
+            .or_else(|| {
+                LOCAL.get().and_then(|m| {
+                    m.lock().unwrap().as_mut().and_then(|w| {
+                        w.cleanup(&[
+                            whimpr_core::cleanup::CleanupMsg {
+                                role: "system",
+                                content: system.to_string(),
+                            },
+                            whimpr_core::cleanup::CleanupMsg {
+                                role: "user",
+                                content: user_msg.clone(),
+                            },
+                        ])
+                        .ok()
+                    })
+                })
+            })
+            .unwrap_or_default();
+
+        let v = serde_json::json!({
+            "profile_text": profile_text,
+            "catchphrase": catchphrase,
+            "most_used_word": most_used,
+            "most_corrected_word": most_corrected,
+            "peak_time": peak,
+            "generated_at_words": total_words,
+            "total_words": total_words,
+            "regen_after_words": VOICE_REGEN_WORDS,
+        });
+        let _ = std::fs::write(
+            voice_profile_path(),
+            serde_json::to_string_pretty(&v).unwrap_or_default(),
+        );
+        v
+    }
+
+    fn tz_offset_secs() -> i64 {
+        // Cheap local-offset probe via `date +%z`.
+        std::process::Command::new("date")
+            .arg("+%z")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| {
+                let s = s.trim();
+                if s.len() >= 5 {
+                    let sign = if s.starts_with('-') { -1 } else { 1 };
+                    let h: i64 = s[1..3].parse().ok()?;
+                    let m: i64 = s[3..5].parse().ok()?;
+                    Some(sign * (h * 3600 + m * 60))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0)
+    }
+
     // --- Snippets / Scratchpad / Transforms API (Hub + shortcuts) ---------
 
     pub fn snippets_entries() -> Vec<whimpr_core::Snippet> {
@@ -1417,8 +1767,14 @@ pub use imp::{
     history, install, last_dictation, rebuild_providers, run_transform, scratchpad_get,
     scratchpad_set, set_overlay_hit, snippets_add, snippets_entries, snippets_remove,
     stats_summary, transforms_list, transforms_save, trigger_cancel, trigger_hands_free,
-    trigger_stop, update_settings,
+    trigger_stop, update_settings, voice_profile,
 };
+#[cfg(target_os = "macos")]
+pub use imp::assistant_chat;
+#[cfg(not(target_os = "macos"))]
+pub fn assistant_chat(_history: Vec<(String, String)>) -> serde_json::Value {
+    serde_json::json!({"reply": "Assistant is macOS-only for now.", "actions_done": []})
+}
 
 // The UI trigger commands are macOS-only for now; inert elsewhere.
 #[cfg(not(target_os = "macos"))]
@@ -1454,6 +1810,10 @@ pub fn run_transform(_shortcut: &str) {}
 #[cfg(not(target_os = "macos"))]
 pub fn last_dictation() -> Option<String> {
     None
+}
+#[cfg(not(target_os = "macos"))]
+pub fn voice_profile(_force: bool) -> serde_json::Value {
+    serde_json::json!({})
 }
 
 // Windows uses the real (but unverified) platform layer in `crate::win`.

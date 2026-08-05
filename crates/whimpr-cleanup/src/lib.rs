@@ -201,3 +201,80 @@ pub fn transcribe_cloud(
         .trim()
         .to_string())
 }
+
+/// Plain OpenAI-compatible chat completion for auxiliary generation (voice
+/// profile text etc.) — separate from the strict cleanup providers.
+pub fn chat_completion(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    system: &str,
+    user: &str,
+) -> anyhow::Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let base = if base_url.trim().is_empty() {
+        "https://api.openai.com/v1"
+    } else {
+        base_url.trim_end_matches('/')
+    };
+    let resp = client
+        .post(format!("{base}/chat/completions"))
+        .bearer_auth(api_key)
+        .json(&serde_json::json!({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "max_tokens": 400,
+        }))
+        .send()?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json()?;
+    if !status.is_success() {
+        anyhow::bail!("chat {status}: {body}");
+    }
+    Ok(body["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string())
+}
+
+/// Multi-turn variant of [`chat_completion`] for the in-app assistant.
+pub fn chat_completion_messages(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    messages: &[(String, String)],
+) -> anyhow::Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .build()?;
+    let base = if base_url.trim().is_empty() {
+        "https://api.openai.com/v1"
+    } else {
+        base_url.trim_end_matches('/')
+    };
+    let msgs: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|(role, content)| serde_json::json!({"role": role, "content": content}))
+        .collect();
+    let resp = client
+        .post(format!("{base}/chat/completions"))
+        .bearer_auth(api_key)
+        .json(&serde_json::json!({ "model": model, "messages": msgs, "max_tokens": 700 }))
+        .send()?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json()?;
+    if !status.is_success() {
+        anyhow::bail!("chat {status}: {body}");
+    }
+    Ok(body["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string())
+}

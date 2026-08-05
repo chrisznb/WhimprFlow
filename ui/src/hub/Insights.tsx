@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Card, PageTitle, useStats } from "./ui";
 import { Icon } from "./icons";
-import type { StatsSummary } from "./api";
+import { getVoiceProfile, type StatsSummary, type VoiceProfile } from "./api";
 import { fmtCompact, fmtNum, newsArticles } from "./format";
 
 // ── Semicircular gauge ───────────────────────────────────────────────────────
@@ -258,19 +258,139 @@ function UsageTab({ stats }: { stats: StatsSummary }) {
   );
 }
 
-function VoiceTab() {
+function QuoteCard({ quote, label }: { quote: string; label: string }) {
   return (
-    <Card>
-      <div style={{ padding: "28px 8px", textAlign: "center" }}>
-        <div style={{ fontFamily: font.serif, fontSize: 20, fontWeight: 600, color: theme.textStrong }}>
-          Your Voice
-        </div>
-        <p style={{ color: theme.textMuted, fontSize: 14, lineHeight: 1.55, maxWidth: 420, margin: "10px auto 0" }}>
-          Tone, pace, and filler-word insights are on the way. As you dictate, WhimprFlow will surface
-          patterns in how you speak, right here.
-        </p>
+    <Card style={{ flex: "1 1 260px", minWidth: 220 }}>
+      <div
+        style={{
+          fontFamily: font.serif,
+          fontStyle: "italic",
+          fontSize: 24,
+          fontWeight: 500,
+          color: theme.textStrong,
+          marginBottom: 12,
+          overflowWrap: "anywhere",
+        }}
+      >
+        {"\u201C"}{quote || "..."}{"\u201D"}
+      </div>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.6,
+          textTransform: "uppercase",
+          color: theme.textFaint,
+        }}
+      >
+        {label}
       </div>
     </Card>
+  );
+}
+
+function VoiceTab() {
+  const [profile, setProfile] = useState<VoiceProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    void getVoiceProfile().then((p) => {
+      setProfile(p);
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) {
+    return (
+      <Card>
+        <div style={{ padding: "34px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
+          Analyzing your dictations…
+        </div>
+      </Card>
+    );
+  }
+  if (!profile || (!profile.profile_text && !profile.catchphrase)) {
+    return (
+      <Card>
+        <div style={{ padding: "34px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
+          Keep dictating. Your voice profile appears here once there is enough to analyze.
+        </div>
+      </Card>
+    );
+  }
+
+  const sinceGen = profile.total_words - profile.generated_at_words;
+  const frac = Math.min(1, sinceGen / profile.regen_after_words);
+  const remaining = Math.max(0, profile.regen_after_words - sinceGen);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div>
+        <div style={{ height: 6, borderRadius: 999, background: theme.track, overflow: "hidden" }}>
+          <div
+            style={{
+              width: `${Math.max(2, frac * 100)}%`,
+              height: "100%",
+              borderRadius: 999,
+              background: theme.lilacBorder,
+              transition: "width 600ms ease",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: theme.textFaint }}>
+          <span>Based on {fmtNum(profile.generated_at_words)} words</span>
+          <span>Next update in {fmtNum(remaining)} more words</span>
+        </div>
+      </div>
+
+      <Card>
+        <div style={{ fontFamily: font.serif, fontSize: 26, fontWeight: 600, color: theme.textStrong }}>
+          Voice Profile
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: theme.textFaint,
+            margin: "4px 0 14px",
+          }}
+        >
+          How you dictate
+        </div>
+        <p style={{ fontSize: 15, lineHeight: 1.6, color: theme.textBody, margin: 0, maxWidth: 720 }}>
+          {profile.profile_text || "Not enough dictations yet for a written profile."}
+        </p>
+      </Card>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
+        <QuoteCard quote={profile.catchphrase} label="Catchphrase" />
+        <QuoteCard quote={profile.most_used_word} label="Most used word" />
+        {profile.most_corrected_word && (
+          <QuoteCard quote={profile.most_corrected_word} label="Most corrected word" />
+        )}
+      </div>
+
+      {profile.peak_time && (
+        <Card>
+          <div style={{ fontFamily: font.serif, fontSize: 22, fontWeight: 600, color: theme.textStrong }}>
+            {profile.peak_time}
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: 0.6,
+              textTransform: "uppercase",
+              color: theme.textFaint,
+              marginTop: 4,
+            }}
+          >
+            Your peak time
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 

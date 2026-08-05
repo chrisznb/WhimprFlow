@@ -4,6 +4,7 @@ import { Icon, type IconName } from "./icons";
 
 export type Page =
   | "home"
+  | "assistant"
   | "insights"
   | "dictionary"
   | "snippets"
@@ -17,6 +18,7 @@ type NavDef = { key: Page; label: string; icon: IconName };
 
 const MAIN: NavDef[] = [
   { key: "home", label: "Home", icon: "home" },
+  { key: "assistant", label: "Ask Whimpr", icon: "assistant" },
   { key: "insights", label: "Insights", icon: "insights" },
   { key: "dictionary", label: "Dictionary", icon: "dictionary" },
   { key: "snippets", label: "Snippets", icon: "snippets" },

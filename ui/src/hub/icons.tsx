@@ -17,6 +17,8 @@ import {
   faXmark,
   faMicrophone,
   faFire,
+  faPaperPlane,
+  faCommentDots,
 } from "@fortawesome/free-solid-svg-icons";
 import {
   faBookOpen as faBookOpenSolid,
@@ -41,7 +43,9 @@ export type IconName =
   | "plus"
   | "close"
   | "mic"
-  | "flame";
+  | "flame"
+  | "send"
+  | "assistant";
 
 const ICONS: Record<IconName, IconDefinition> = {
   home: faHouse,
@@ -59,6 +63,8 @@ const ICONS: Record<IconName, IconDefinition> = {
   close: faXmark,
   mic: faMicrophone,
   flame: faFire,
+  send: faPaperPlane,
+  assistant: faCommentDots,
 };
 
 export function Icon({
