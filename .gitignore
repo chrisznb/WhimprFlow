@@ -25,3 +25,6 @@ src-tauri/gen/
 .env
 .env.*
 *.pem
+
+# Per-user Claude Code launch config
+.claude/

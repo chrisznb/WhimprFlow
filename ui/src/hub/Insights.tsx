@@ -2,6 +2,7 @@ import { useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Card, PageTitle, useStats } from "./ui";
+import { Icon } from "./icons";
 import type { StatsSummary } from "./api";
 import { fmtCompact, fmtNum, newsArticles } from "./format";
 
@@ -243,8 +244,8 @@ function UsageTab({ stats }: { stats: StatsSummary }) {
         <Card style={{ flex: "1 1 300px", minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Streak</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: theme.accentDeep }}>
-              🔥 {stats.day_streak} {stats.day_streak === 1 ? "day" : "days"}
+            <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: theme.accentDeep }}>
+              <Icon name="flame" size={14} /> {stats.day_streak} {stats.day_streak === 1 ? "day" : "days"}
             </div>
           </div>
           <Heatmap last7={stats.last7_words} />
@@ -266,7 +267,7 @@ function VoiceTab() {
         </div>
         <p style={{ color: theme.textMuted, fontSize: 14, lineHeight: 1.55, maxWidth: 420, margin: "10px auto 0" }}>
           Tone, pace, and filler-word insights are on the way. As you dictate, WhimprFlow will surface
-          patterns in how you speak — right here.
+          patterns in how you speak, right here.
         </p>
       </div>
     </Card>

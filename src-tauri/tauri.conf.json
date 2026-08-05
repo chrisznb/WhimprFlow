@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "WhimprFlow",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "identifier": "com.whimpr.whimprflow",
   "build": {
     "beforeDevCommand": "pnpm --dir ui dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm --dir ui build",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../ui/dist"
   },
   "app": {

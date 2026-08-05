@@ -19,6 +19,55 @@ pub struct DictEntryDto {
     pub auto: bool,
 }
 
+/// Overlay window rect (physical pixels) + display scale, published by the
+/// hover watcher so the event tap can route pill clicks without touching the
+/// window from the tap thread.
+#[derive(Clone, Copy)]
+pub struct OverlayHit {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub scale: f64,
+}
+
+/// A saved text transform: applied to the current selection via its shortcut.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct Transform {
+    pub name: String,
+    /// Accelerator in tauri-global-shortcut syntax, e.g. "Alt+1".
+    pub shortcut: String,
+    pub prompt: String,
+}
+
+pub fn default_transforms() -> Vec<Transform> {
+    vec![
+        Transform {
+            name: "Polish".into(),
+            shortcut: "Alt+1".into(),
+            prompt: "Improve clarity and conciseness. Fix grammar and flow without changing \
+                     the meaning or the tone."
+                .into(),
+        },
+        Transform {
+            name: "Prompt Engineer".into(),
+            shortcut: "Alt+2".into(),
+            prompt: "Rewrite this as a clear, well-structured prompt for an AI assistant: \
+                     explicit goal, relevant context, constraints, and the desired output \
+                     format."
+                .into(),
+        },
+        Transform {
+            name: "Organize".into(),
+            shortcut: "Alt+3".into(),
+            prompt: "Organize these unstructured thoughts into a clear, polished version \
+                     without adding, removing, or changing meaning. Improve flow and \
+                     readability while keeping all original ideas intact."
+                .into(),
+        },
+    ]
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use std::os::raw::c_void;
@@ -30,8 +79,8 @@ mod imp {
     use std::time::{Duration, Instant};
 
     use serde::Serialize;
-    use tauri::{AppHandle, Emitter};
-    use whimpr_core::state::{Action, BarState};
+    use tauri::{AppHandle, Emitter, Manager};
+    use whimpr_core::state::{Action, BarState, DictationState};
     use whimpr_core::{
         AsrEngine, CleanupContext, CleanupMode, CleanupProvider, Input, PipelineEvent, StateMachine,
         TriggerToken,
@@ -64,6 +113,20 @@ mod imp {
         fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
         fn CGEventGetFlags(event: CGEventRef) -> u64;
         fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
+        fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+        fn CGEventSourceButtonState(state_id: u32, button: u32) -> bool;
+    }
+
+    /// Left mouse button currently held? Checks both the combined-session and
+    /// HID system states — synthetic input only shows up in one of them.
+    fn left_button_down() -> bool {
+        unsafe { CGEventSourceButtonState(0, 0) || CGEventSourceButtonState(1, 0) }
+    }
+
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
     }
 
     #[link(name = "CoreFoundation", kind = "framework")]
@@ -81,9 +144,25 @@ mod imp {
 
     const K_CG_SESSION_EVENT_TAP: u32 = 1;
     const K_CG_HEAD_INSERT: u32 = 0;
-    const K_CG_TAP_OPTION_LISTEN_ONLY: u32 = 1;
+    // Default (not listen-only): the tap may swallow pill clicks so they never
+    // activate the overlay window or reach the app underneath.
+    const K_CG_TAP_OPTION_DEFAULT: u32 = 0;
+    const K_CG_EVENT_LEFT_MOUSE_DOWN: u32 = 1;
+    const K_CG_EVENT_LEFT_MOUSE_UP: u32 = 2;
+    const K_CG_EVENT_MOUSE_MOVED: u32 = 5;
+    const K_CG_EVENT_LEFT_MOUSE_DRAGGED: u32 = 6;
+    const K_CG_EVENT_KEY_DOWN: u32 = 10;
     const K_CG_EVENT_FLAGS_CHANGED: u32 = 12;
-    const EVENTS_OF_INTEREST: u64 = 1 << K_CG_EVENT_FLAGS_CHANGED;
+    const KEYCODE_ESC: i64 = 53;
+    // mouse-moved is included because synthetic drags (and some devices) emit
+    // moved instead of dragged while the button is held; the handler only acts
+    // on it when a pill drag is already in flight.
+    const EVENTS_OF_INTEREST: u64 = (1 << K_CG_EVENT_FLAGS_CHANGED)
+        | (1 << K_CG_EVENT_LEFT_MOUSE_DOWN)
+        | (1 << K_CG_EVENT_LEFT_MOUSE_UP)
+        | (1 << K_CG_EVENT_MOUSE_MOVED)
+        | (1 << K_CG_EVENT_LEFT_MOUSE_DRAGGED)
+        | (1 << K_CG_EVENT_KEY_DOWN);
     const FLAG_SECONDARY_FN: u64 = 0x0080_0000;
     const K_CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
     const KEYCODE_FN: i64 = 63;
@@ -98,6 +177,113 @@ mod imp {
     /// Bundle id of the app that was frontmost at record-start = the paste target.
     /// Cleanup uses it to format for the medium (email vs. text vs. chat).
     static TARGET_APP: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    /// Overlay window rect in physical pixels + scale, refreshed by the hover
+    /// watcher. The click branch of the event tap tests against this.
+    static OVERLAY_HIT: OnceLock<Mutex<Option<super::OverlayHit>>> = OnceLock::new();
+    /// Spoken snippets (trigger phrase -> replacement), applied after cleanup.
+    static SNIPPETS: OnceLock<Mutex<whimpr_core::SnippetStore>> = OnceLock::new();
+    /// Saved text transforms (shortcut -> prompt).
+    static TRANSFORMS: OnceLock<Mutex<Vec<super::Transform>>> = OnceLock::new();
+
+    pub fn set_overlay_hit(hit: super::OverlayHit) {
+        *OVERLAY_HIT.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(hit);
+    }
+
+    /// In-flight pill drag: mouse-down origin, window origin, and whether the
+    /// pointer moved far enough to count as a drag rather than a click.
+    #[derive(Clone, Copy)]
+    struct DragState {
+        start_mx: f64,
+        start_my: f64,
+        win_x: f64,
+        win_y: f64,
+        scale: f64,
+        moved: bool,
+    }
+    static DRAG: OnceLock<Mutex<Option<DragState>>> = OnceLock::new();
+    /// AX text around the caret of the paste target, snapshotted at record-start.
+    static WINDOW_CTX: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    /// Last pasted dictation + when — for follow-up context and the tray copy item.
+    static LAST_DICTATION: OnceLock<Mutex<Option<(String, Instant)>>> = OnceLock::new();
+    /// Whether WE paused the music player (so idle only resumes what we paused).
+    static MUSIC_PAUSED: AtomicBool = AtomicBool::new(false);
+
+    /// Snapshot the paste target's focused-field text off-thread (AX can take a
+    /// few ms — too slow for the event-tap callback).
+    fn snapshot_window_ctx() {
+        if !current_settings().context_awareness {
+            *WINDOW_CTX.get_or_init(|| Mutex::new(None)).lock().unwrap() = None;
+            return;
+        }
+        std::thread::spawn(|| {
+            let ctx = crate::appctx::focused_text_context(280);
+            *WINDOW_CTX.get_or_init(|| Mutex::new(None)).lock().unwrap() = ctx;
+        });
+    }
+
+    pub fn last_dictation() -> Option<String> {
+        LAST_DICTATION
+            .get()
+            .and_then(|m| m.lock().unwrap().as_ref().map(|(t, _)| t.clone()))
+    }
+
+    fn music_script(cmd: &str) -> String {
+        // Pause/resume whichever player is actually running + playing.
+        format!(
+            r#"set acted to ""
+if application "Spotify" is running then
+  tell application "Spotify"
+    if player state is {playing} then
+      {cmd}
+      set acted to "spotify"
+    end if
+  end tell
+end if
+if application "Music" is running then
+  tell application "Music"
+    if player state is {playing} then
+      {cmd}
+      set acted to acted & " music"
+    end if
+  end tell
+end if
+return acted"#,
+            playing = if cmd == "pause" { "playing" } else { "paused" },
+            cmd = cmd
+        )
+    }
+
+    fn pause_music_if_playing() {
+        if !current_settings().mute_music_while_dictating {
+            return;
+        }
+        std::thread::spawn(|| {
+            let out = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(music_script("pause"))
+                .output();
+            if let Ok(o) = out {
+                let acted = String::from_utf8_lossy(&o.stdout);
+                if !acted.trim().is_empty() {
+                    eprintln!("[whimpr] music paused ({})", acted.trim());
+                    MUSIC_PAUSED.store(true, Ordering::SeqCst);
+                }
+            }
+        });
+    }
+
+    fn resume_music_if_we_paused() {
+        if !MUSIC_PAUSED.swap(false, Ordering::SeqCst) {
+            return;
+        }
+        std::thread::spawn(|| {
+            let _ = std::process::Command::new("osascript")
+                .arg("-e")
+                .arg(music_script("play"))
+                .output();
+            eprintln!("[whimpr] music resumed");
+        });
+    }
     static CAPTURE: OnceLock<Mutex<Option<whimpr_audio::CaptureHandle>>> = OnceLock::new();
     static ASR: OnceLock<Arc<whimpr_asr::WhisperEngine>> = OnceLock::new();
     static OPENAI: OnceLock<Mutex<Option<whimpr_cleanup::OpenAiProvider>>> = OnceLock::new();
@@ -110,6 +296,7 @@ mod imp {
     #[derive(Clone, Serialize)]
     struct BarPayload {
         state: &'static str,
+        vertical: bool,
     }
 
     #[derive(Clone, Serialize)]
@@ -129,6 +316,7 @@ mod imp {
     fn model_path() -> PathBuf {
         let dir = support_dir().join("models");
         for name in [
+            "ggml-large-v3-turbo-q5_0.bin",
             "ggml-large-v3-turbo.bin",
             "ggml-medium.en.bin",
             "ggml-small.en.bin",
@@ -154,6 +342,15 @@ mod imp {
     }
     fn stats_path() -> PathBuf {
         support_dir().join("stats.json")
+    }
+    fn snippets_path() -> PathBuf {
+        support_dir().join("snippets.json")
+    }
+    fn scratchpad_path() -> PathBuf {
+        support_dir().join("scratchpad.md")
+    }
+    fn transforms_path() -> PathBuf {
+        support_dir().join("transforms.json")
     }
 
     /// Seconds since the Unix epoch (UTC), or 0 if the clock is before the epoch.
@@ -321,6 +518,36 @@ mod imp {
     /// dictionary vocabulary relevant to this utterance. Falls back to raw whenever
     /// cleanup is off, the provider is unavailable, it errors, or the gates reject it.
     fn clean_transcript(raw: &str) -> String {
+        let cleaned = clean_transcript_inner(raw);
+        // Spoken snippets expand after cleanup so triggers survive the LLM pass.
+        SNIPPETS
+            .get()
+            .map(|s| s.lock().unwrap().apply(&cleaned))
+            .unwrap_or(cleaned)
+    }
+
+    /// Map the paste-target bundle id to a style category and its user-chosen level.
+    fn style_for_app(settings: &whimpr_core::Settings, bundle: Option<&str>) -> &'static str {
+        use whimpr_core::StyleLevel;
+        let b = bundle.unwrap_or("").to_lowercase();
+        let level: StyleLevel = if b.contains("whatsapp")
+            || b.contains("telegram")
+            || b.contains("mobilesms")
+            || b.contains("discord")
+            || b.contains("signal")
+        {
+            settings.style.personal
+        } else if b.contains("slack") || b.contains("teams") {
+            settings.style.work
+        } else if b.contains("mail") || b.contains("outlook") || b.contains("superhuman") {
+            settings.style.email
+        } else {
+            settings.style.other
+        };
+        level.modifier()
+    }
+
+    fn clean_transcript_inner(raw: &str) -> String {
         let settings = current_settings();
         let level = settings.cleanup_level;
         if matches!(settings.cleanup_mode, CleanupMode::Raw) || level.bypasses_llm() {
@@ -342,10 +569,31 @@ mod imp {
         if let Some(app) = app_bundle_id.as_deref() {
             eprintln!("[whimpr] cleanup target app: {app}");
         }
+        let style = style_for_app(&settings, app_bundle_id.as_deref());
+        // Context awareness: text around the caret (AX snapshot at record-start)
+        // plus the previous dictation when it was moments ago (follow-ups).
+        let mut window_context = WINDOW_CTX
+            .get()
+            .and_then(|m| m.lock().unwrap().clone())
+            .filter(|_| settings.context_awareness);
+        if settings.context_awareness {
+            if let Some((prev, at)) = LAST_DICTATION.get().and_then(|m| m.lock().unwrap().clone()) {
+                if at.elapsed() < Duration::from_secs(90) {
+                    let tail: String = prev.chars().rev().take(200).collect::<Vec<_>>().into_iter().rev().collect();
+                    let joined = match window_context.take() {
+                        Some(w) => format!("{w}\n[Previous dictation, moments ago:] {tail}"),
+                        None => format!("[Previous dictation, moments ago:] {tail}"),
+                    };
+                    window_context = Some(joined);
+                }
+            }
+        }
         let ctx = CleanupContext {
             level,
             vocab,
             app_bundle_id,
+            style: Some(style),
+            window_context,
             ..Default::default()
         };
         // Run the on-device model with the same prompt + per-app formatting.
@@ -402,6 +650,53 @@ mod imp {
         }
     }
 
+    /// Whisper non-speech annotations: "*music*", "[Musik]", "(applause)", "♪ …".
+    /// Never legitimate dictation output — always dropped, regardless of level.
+    fn is_noise_annotation(text: &str) -> bool {
+        let t = text.trim();
+        if t.is_empty() {
+            return true;
+        }
+        (t.starts_with('*') && t.ends_with('*'))
+            || (t.starts_with('[') && t.ends_with(']'))
+            || (t.starts_with('(') && t.ends_with(')'))
+            || t.chars().all(|c| matches!(c, '♪' | '♫' | ' ' | '.' | '-'))
+    }
+
+    /// Classic Whisper silence hallucinations (German + English).
+    fn is_silence_hallucination(text: &str) -> bool {
+        let t = text.trim().trim_end_matches(['.', '!']).to_lowercase();
+        matches!(
+            t.as_str(),
+            "" | "vielen dank"
+                | "danke"
+                | "danke schön"
+                | "dankeschön"
+                | "thank you"
+                | "thanks for watching"
+                | "bis zum nächsten mal"
+                | "untertitelung des zdf für funk, 2017"
+                | "untertitel im auftrag des zdf für funk, 2017"
+                | "untertitel der amara.org-community"
+                | "copyright wdr 2021"
+                | "das war's"
+        )
+    }
+
+    /// Fire-and-forget system sound (subtle Wispr-style audio feedback).
+    fn play_sound(name: &'static str) {
+        if !current_settings().sound_on_start {
+            return;
+        }
+        std::thread::spawn(move || {
+            let _ = std::process::Command::new("afplay")
+                .arg("-v")
+                .arg("0.35")
+                .arg(format!("/System/Library/Sounds/{name}.aiff"))
+                .status();
+        });
+    }
+
     fn now_ms() -> u64 {
         CLOCK.get().map(|c| c.elapsed().as_millis() as u64).unwrap_or(0)
     }
@@ -420,7 +715,35 @@ mod imp {
 
     fn emit_bar(app: &AppHandle, state: &'static str) {
         eprintln!("[whimpr] pill -> {state}");
-        let _ = app.emit_to(OVERLAY_LABEL, "whimpr://flowbar/state", BarPayload { state });
+        match state {
+            "recording" | "locked" => {
+                play_sound("Tink");
+                pause_music_if_playing();
+            }
+            "done" => play_sound("Pop"),
+            "idle" | "cancelled" | "error" => resume_music_if_we_paused(),
+            _ => {}
+        }
+        let vertical = crate::overlay_vertical();
+        let _ = app.emit_to(
+            OVERLAY_LABEL,
+            "whimpr://flowbar/state",
+            BarPayload { state, vertical },
+        );
+        // Resize the overlay window to hug the pill per state, so its hitbox is
+        // only ever the pill itself (idle stays hoverable for the mic button).
+        if let Some(w) = app.get_webview_window(OVERLAY_LABEL) {
+            let (lw, lh) = match (state, vertical) {
+                ("recording" | "locked", false) => (240.0, 56.0),
+                ("recording" | "locked", true) => (56.0, 240.0),
+                ("idle", false) => (76.0, 44.0),
+                ("idle", true) => (44.0, 76.0),
+                (_, false) => (200.0, 52.0),
+                (_, true) => (52.0, 120.0),
+            };
+            let _ = w.set_size(tauri::LogicalSize::new(lw, lh));
+            crate::position_overlay(&w);
+        }
     }
 
     /// Feed one input into the shared state machine and enact its actions.
@@ -506,17 +829,44 @@ mod imp {
                     let pcm = whimpr_audio::resample_to_16k(&res.samples, res.sample_rate);
                     match asr.transcribe(&pcm) {
                         Ok(t) => {
-                            let raw = t.text;
+                            let mut raw = t.text;
                             eprintln!("[whimpr] TRANSCRIPT: \"{}\"", raw);
+                            // Whisper hallucinates stock phrases on (near-)silence
+                            // ("Vielen Dank.", subtitle credits, …). Only filter when
+                            // the audio was actually quiet, so genuinely dictated
+                            // thanks still go through.
+                            if is_noise_annotation(&raw)
+                                || (peak < 0.012 && is_silence_hallucination(&raw))
+                            {
+                                eprintln!("[whimpr] non-speech transcript dropped");
+                                raw = String::new();
+                            }
                             // Clean the transcript (cloud LLM if configured), then paste.
-                            let text = clean_transcript(&raw);
+                            let mut text = clean_transcript(&raw);
                             if text != raw {
                                 eprintln!("[whimpr] CLEANED:   \"{}\"", text);
+                            }
+                            // Smart spacing: pasting right behind existing text
+                            // (caret at a word/punctuation) gets a leading space.
+                            if let Some(ctx) = WINDOW_CTX.get().and_then(|m| m.lock().unwrap().clone()) {
+                                let needs_space = ctx
+                                    .chars()
+                                    .last()
+                                    .map(|c| !c.is_whitespace())
+                                    .unwrap_or(false)
+                                    && text.chars().next().map(|c| c.is_alphanumeric()).unwrap_or(false);
+                                if needs_space {
+                                    text.insert(0, ' ');
+                                }
                             }
                             if !text.is_empty() {
                                 if let Err(e) = crate::paste::paste_text(&text) {
                                     eprintln!("[whimpr] paste failed: {e}");
                                 }
+                                *LAST_DICTATION
+                                    .get_or_init(|| Mutex::new(None))
+                                    .lock()
+                                    .unwrap() = Some((text.clone(), Instant::now()));
                                 // Log words + speaking time for the Hub stats (WPM, streak…).
                                 record_dictation(&text, res.duration_secs());
                                 // Watch the field for a post-paste correction to learn (✨).
@@ -560,6 +910,127 @@ mod imp {
             }
             return event;
         }
+        if etype == K_CG_EVENT_KEY_DOWN {
+            // Esc cancels a running dictation (and is swallowed); everything else
+            // passes through untouched.
+            let keycode =
+                unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) };
+            if keycode == KEYCODE_ESC {
+                let recording = MACHINE
+                    .get()
+                    .map(|m| matches!(m.lock().unwrap().state(), DictationState::Recording { .. }))
+                    .unwrap_or(false);
+                if recording {
+                    eprintln!("[whimpr] Esc -> cancel");
+                    handle_input(Input::Trigger(TriggerToken::Cancel { at_ms: now_ms() }));
+                    return null_mut();
+                }
+            }
+            return event;
+        }
+        if etype == K_CG_EVENT_LEFT_MOUSE_DOWN {
+            let hit = OVERLAY_HIT.get().and_then(|m| *m.lock().unwrap());
+            if let Some(r) = hit {
+                let loc = unsafe { CGEventGetLocation(event) };
+                let (mx, my) = (loc.x * r.scale, loc.y * r.scale);
+                if mx >= r.x && mx <= r.x + r.w && my >= r.y && my <= r.y + r.h {
+                    // Don't act yet — wait for mouse-up so a drag can move the
+                    // pill instead of clicking it. Swallow the event either way.
+                    *DRAG.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(DragState {
+                        start_mx: mx,
+                        start_my: my,
+                        win_x: r.x,
+                        win_y: r.y,
+                        scale: r.scale,
+                        moved: false,
+                    });
+                    return null_mut();
+                }
+            }
+            return event;
+        }
+        if etype == K_CG_EVENT_LEFT_MOUSE_DRAGGED || etype == K_CG_EVENT_MOUSE_MOVED {
+            let drag = DRAG.get().and_then(|m| *m.lock().unwrap());
+            if drag.is_none() {
+                return event;
+            }
+            // Stuck-drag guard: if the button is no longer down (missed mouse-up,
+            // e.g. from synthetic input), finish the drag now.
+            if etype == K_CG_EVENT_MOUSE_MOVED && !left_button_down() {
+                *DRAG.get().unwrap().lock().unwrap() = None;
+                if let Some(app) = APP.get() {
+                    crate::overlay_drag_end(app);
+                }
+                return event;
+            }
+            if let Some(mut d) = drag {
+                let loc = unsafe { CGEventGetLocation(event) };
+                let (mx, my) = (loc.x * d.scale, loc.y * d.scale);
+                let (dx, dy) = (mx - d.start_mx, my - d.start_my);
+                if !d.moved && (dx * dx + dy * dy).sqrt() < 5.0 * d.scale {
+                    return null_mut();
+                }
+                d.moved = true;
+                *DRAG.get().unwrap().lock().unwrap() = Some(d);
+                if let Some(app) = APP.get() {
+                    crate::overlay_drag_move(app, d.win_x + dx, d.win_y + dy);
+                }
+                return null_mut();
+            }
+            return event;
+        }
+        if etype == K_CG_EVENT_LEFT_MOUSE_UP {
+            let drag = DRAG.get().and_then(|m| *m.lock().unwrap());
+            if let Some(d) = drag {
+                *DRAG.get().unwrap().lock().unwrap() = None;
+                if d.moved {
+                    // Drag finished: persist the new anchor, no click action.
+                    if let Some(app) = APP.get() {
+                        crate::overlay_drag_end(app);
+                    }
+                    return null_mut();
+                }
+                // Plain click: act based on the current state.
+                let loc = unsafe { CGEventGetLocation(event) };
+                let mx = loc.x * d.scale;
+                let r_w = OVERLAY_HIT
+                    .get()
+                    .and_then(|m| *m.lock().unwrap())
+                    .map(|r| (r.x, r.w))
+                    .unwrap_or((d.win_x, 1.0));
+                let state = MACHINE.get().map(|m| m.lock().unwrap().state());
+                match state {
+                    Some(DictationState::Idle) => {
+                        eprintln!("[whimpr] pill click -> start");
+                        let target = crate::appctx::frontmost_bundle_id();
+                        *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target; snapshot_window_ctx();
+                        handle_input(Input::Trigger(TriggerToken::Down {
+                            binding: BindingId::HandsFree,
+                            at_ms: now_ms(),
+                        }));
+                    }
+                    Some(DictationState::Recording { .. }) => {
+                        // Left third of the bar cancels; the rest stops+pastes.
+                        let frac = (mx - r_w.0) / r_w.1;
+                        if frac < 0.33 {
+                            eprintln!("[whimpr] pill click -> cancel");
+                            handle_input(Input::Trigger(TriggerToken::Cancel {
+                                at_ms: now_ms(),
+                            }));
+                        } else {
+                            eprintln!("[whimpr] pill click -> stop");
+                            handle_input(Input::Trigger(TriggerToken::Down {
+                                binding: BindingId::PushToTalk,
+                                at_ms: now_ms(),
+                            }));
+                        }
+                    }
+                    _ => {}
+                }
+                return null_mut();
+            }
+            return event;
+        }
         if etype == K_CG_EVENT_FLAGS_CHANGED {
             let keycode =
                 unsafe { CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) };
@@ -572,7 +1043,7 @@ mod imp {
                     eprintln!("[whimpr] Fn DOWN");
                     // Snapshot the paste target now, while the user's app is focused.
                     let target = crate::appctx::frontmost_bundle_id();
-                    *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target;
+                    *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target; snapshot_window_ctx();
                     handle_input(Input::Trigger(TriggerToken::Down {
                         binding: BindingId::PushToTalk,
                         at_ms,
@@ -589,6 +1060,147 @@ mod imp {
         event
     }
 
+    // --- Snippets / Scratchpad / Transforms API (Hub + shortcuts) ---------
+
+    pub fn snippets_entries() -> Vec<whimpr_core::Snippet> {
+        SNIPPETS
+            .get()
+            .map(|s| s.lock().unwrap().entries.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn snippets_add(trigger: String, replacement: String) {
+        if let Some(s) = SNIPPETS.get() {
+            let mut s = s.lock().unwrap();
+            s.add(trigger, replacement);
+            let _ = s.save(&snippets_path());
+        }
+    }
+
+    pub fn snippets_remove(trigger: &str) {
+        if let Some(s) = SNIPPETS.get() {
+            let mut s = s.lock().unwrap();
+            s.remove(trigger);
+            let _ = s.save(&snippets_path());
+        }
+    }
+
+    pub fn scratchpad_get() -> String {
+        std::fs::read_to_string(scratchpad_path()).unwrap_or_default()
+    }
+
+    pub fn scratchpad_set(text: &str) {
+        let _ = std::fs::create_dir_all(support_dir());
+        let _ = std::fs::write(scratchpad_path(), text);
+    }
+
+    pub fn transforms_list() -> Vec<super::Transform> {
+        TRANSFORMS
+            .get()
+            .map(|t| t.lock().unwrap().clone())
+            .unwrap_or_else(super::default_transforms)
+    }
+
+    pub fn transforms_save(list: Vec<super::Transform>) {
+        if let Some(t) = TRANSFORMS.get() {
+            *t.lock().unwrap() = list.clone();
+        }
+        let _ = std::fs::write(
+            transforms_path(),
+            serde_json::to_string_pretty(&list).unwrap_or_default(),
+        );
+    }
+
+    /// Run a transform on the current selection: copy it, rewrite it with the
+    /// local LLM, paste the result over the selection. Driven by the global
+    /// shortcuts registered in the Tauri shell.
+    pub fn run_transform(shortcut: &str) {
+        let Some(t) = transforms_list()
+            .into_iter()
+            .find(|t| t.shortcut.eq_ignore_ascii_case(shortcut))
+        else {
+            return;
+        };
+        let Some(app) = APP.get().cloned() else { return };
+        std::thread::spawn(move || {
+            let sel = match crate::paste::copy_selection() {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    eprintln!("[whimpr] transform '{}': no selection", t.name);
+                    emit_bar(&app, "error");
+                    reset_bar_soon(&app);
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("[whimpr] transform copy failed: {e}");
+                    return;
+                }
+            };
+            eprintln!("[whimpr] transform '{}' on {} chars", t.name, sel.len());
+            emit_bar(&app, "transcribing");
+            let system = format!(
+                "You are a text transformation engine. Apply the instruction to the text you \
+                 receive. Return ONLY the transformed text — no preamble, no explanations, no \
+                 quotes, no markdown fences. Keep the text's original language.\n\
+                 Instruction: {}",
+                t.prompt
+            );
+            let msgs = vec![
+                whimpr_core::cleanup::CleanupMsg { role: "system", content: system },
+                whimpr_core::cleanup::CleanupMsg { role: "user", content: sel },
+            ];
+            let result = LOCAL
+                .get()
+                .and_then(|m| m.lock().unwrap().as_mut().map(|w| w.cleanup(&msgs)));
+            match result {
+                Some(Ok(out)) if !out.trim().is_empty() => {
+                    if let Err(e) = crate::paste::paste_text(out.trim()) {
+                        eprintln!("[whimpr] transform paste failed: {e}");
+                    }
+                    emit_bar(&app, "done");
+                }
+                other => {
+                    eprintln!("[whimpr] transform failed: {other:?}");
+                    emit_bar(&app, "error");
+                }
+            }
+            reset_bar_soon(&app);
+        });
+    }
+
+    fn reset_bar_soon(app: &AppHandle) {
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1400));
+            emit_bar(&app, "idle");
+        });
+    }
+
+    /// Start a hands-free (locked) dictation, as if the user tapped Fn — used by
+    /// the pill's on-hover mic button. Snapshots the paste target first, exactly
+    /// like the Fn-down path.
+    pub fn trigger_hands_free() {
+        let target = crate::appctx::frontmost_bundle_id();
+        *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target; snapshot_window_ctx();
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::HandsFree,
+            at_ms: now_ms(),
+        }));
+    }
+
+    /// Finalize the running session (pill stop button).
+    pub fn trigger_stop() {
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::PushToTalk,
+            at_ms: now_ms(),
+        }));
+    }
+
+    /// Cancel and discard the running session (pill cancel button).
+    pub fn trigger_cancel() {
+        handle_input(Input::Trigger(TriggerToken::Cancel { at_ms: now_ms() }));
+    }
+
     pub fn install(app: AppHandle) {
         let _ = APP.set(app);
         let _ = MACHINE.set(Mutex::new(StateMachine::new()));
@@ -603,6 +1215,11 @@ mod imp {
             }
             match whimpr_asr::WhisperEngine::load(&path) {
                 Ok(engine) => {
+                    // Transcribe a second of silence now so Metal compiles its
+                    // pipelines at startup, not on the user's first dictation.
+                    let t = Instant::now();
+                    let _ = engine.transcribe(&vec![0.0f32; 16_000]);
+                    eprintln!("[whimpr] ASR warmed up in {:?}", t.elapsed());
                     let _ = ASR.set(Arc::new(engine));
                     eprintln!("[whimpr] ASR model loaded — ready to transcribe");
                 }
@@ -620,12 +1237,47 @@ mod imp {
         let _ = SETTINGS.set(Mutex::new(settings));
         let _ = DICTIONARY.set(Mutex::new(dict));
         let _ = STATS.set(Mutex::new(whimpr_core::StatsStore::load(&stats_path())));
+
+        // Snippets: seed a self-explanatory example on first run.
+        let mut snips = whimpr_core::SnippetStore::load(&snippets_path());
+        if snips.entries.is_empty() && !snippets_path().exists() {
+            snips.add("my email address", "you@example.com");
+            let _ = snips.save(&snippets_path());
+        }
+        let _ = SNIPPETS.set(Mutex::new(snips));
+
+        // Transforms: defaults on first run.
+        let transforms: Vec<super::Transform> = std::fs::read_to_string(transforms_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| {
+                let d = super::default_transforms();
+                let _ = std::fs::write(
+                    transforms_path(),
+                    serde_json::to_string_pretty(&d).unwrap_or_default(),
+                );
+                d
+            });
+        let _ = TRANSFORMS.set(Mutex::new(transforms));
+
         rebuild_providers();
 
         // Start the local cleanup worker in the background (model load takes a few
         // seconds; the first local cleanup waits for it, subsequent ones are fast).
         std::thread::spawn(|| {
-            let worker = crate::local_llm::spawn_default();
+            let mut worker = crate::local_llm::spawn_default();
+            // Prefill the shared system+few-shot prompt prefix once now; the
+            // worker's KV cache keeps it, so the first real cleanup only pays
+            // for the transcript tokens.
+            if let Some(w) = worker.as_mut() {
+                let msgs = whimpr_core::cleanup::build_messages(
+                    "warm up",
+                    &whimpr_core::cleanup::CleanupContext::default(),
+                );
+                let t = Instant::now();
+                let _ = w.cleanup(&msgs);
+                eprintln!("[whimpr] local LLM warmed up in {:?}", t.elapsed());
+            }
             let _ = LOCAL.set(Mutex::new(worker));
         });
 
@@ -669,7 +1321,7 @@ mod imp {
                 CGEventTapCreate(
                     K_CG_SESSION_EVENT_TAP,
                     K_CG_HEAD_INSERT,
-                    K_CG_TAP_OPTION_LISTEN_ONLY,
+                    K_CG_TAP_OPTION_DEFAULT,
                     EVENTS_OF_INTEREST,
                     tap_callback,
                     null_mut(),
@@ -697,8 +1349,47 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::{
     current_settings, dictionary_add, dictionary_entries, dictionary_learn, dictionary_remove,
-    history, install, rebuild_providers, stats_summary, update_settings,
+    history, install, last_dictation, rebuild_providers, run_transform, scratchpad_get,
+    scratchpad_set, set_overlay_hit, snippets_add, snippets_entries, snippets_remove,
+    stats_summary, transforms_list, transforms_save, trigger_cancel, trigger_hands_free,
+    trigger_stop, update_settings,
 };
+
+// The UI trigger commands are macOS-only for now; inert elsewhere.
+#[cfg(not(target_os = "macos"))]
+pub fn trigger_hands_free() {}
+#[cfg(not(target_os = "macos"))]
+pub fn trigger_stop() {}
+#[cfg(not(target_os = "macos"))]
+pub fn trigger_cancel() {}
+#[cfg(not(target_os = "macos"))]
+pub fn set_overlay_hit(_hit: OverlayHit) {}
+#[cfg(not(target_os = "macos"))]
+pub fn snippets_entries() -> Vec<whimpr_core::Snippet> {
+    Vec::new()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn snippets_add(_trigger: String, _replacement: String) {}
+#[cfg(not(target_os = "macos"))]
+pub fn snippets_remove(_trigger: &str) {}
+#[cfg(not(target_os = "macos"))]
+pub fn scratchpad_get() -> String {
+    String::new()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn scratchpad_set(_text: &str) {}
+#[cfg(not(target_os = "macos"))]
+pub fn transforms_list() -> Vec<Transform> {
+    default_transforms()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn transforms_save(_list: Vec<Transform>) {}
+#[cfg(not(target_os = "macos"))]
+pub fn run_transform(_shortcut: &str) {}
+#[cfg(not(target_os = "macos"))]
+pub fn last_dictation() -> Option<String> {
+    None
+}
 
 // Windows uses the real (but unverified) platform layer in `crate::win`.
 #[cfg(target_os = "windows")]

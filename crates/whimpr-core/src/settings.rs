@@ -22,11 +22,64 @@ pub enum CleanupMode {
     Anthropic,
 }
 
+/// Writing style per target-app category (Wispr-style "Style" feature).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StyleLevel {
+    /// Caps + full punctuation.
+    Formal,
+    /// Caps + lighter punctuation.
+    #[default]
+    Casual,
+    /// no caps + minimal punctuation.
+    VeryCasual,
+}
+
+/// Per-category style preferences, keyed by what kind of app the text lands in.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct StylePrefs {
+    pub personal: StyleLevel,
+    pub work: StyleLevel,
+    pub email: StyleLevel,
+    pub other: StyleLevel,
+}
+
+impl Default for StylePrefs {
+    fn default() -> Self {
+        Self {
+            personal: StyleLevel::Casual,
+            work: StyleLevel::Formal,
+            email: StyleLevel::Formal,
+            other: StyleLevel::Casual,
+        }
+    }
+}
+
+impl StyleLevel {
+    /// The "# Formatting Mode" instruction the cleanup prompt understands.
+    pub fn modifier(self) -> &'static str {
+        match self {
+            StyleLevel::Formal => {
+                "Formal: proper sentence capitalization and full punctuation; complete sentences."
+            }
+            StyleLevel::Casual => {
+                "Casual: natural capitalization, lighter punctuation; contractions are fine."
+            }
+            StyleLevel::VeryCasual => {
+                "very casual: lowercase except proper nouns, minimal punctuation, chat-style."
+            }
+        }
+    }
+}
+
 /// Persisted user configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     pub cleanup_mode: CleanupMode,
     pub cleanup_level: CleanupLevel,
+    /// Per-app-category writing style.
+    #[serde(default)]
+    pub style: StylePrefs,
     pub openai_model: String,
     /// API root for the "OpenAI" cleanup mode, e.g. `https://openrouter.ai/api/v1`
     /// to route through OpenRouter instead of OpenAI directly (same wire format).
@@ -36,6 +89,17 @@ pub struct Settings {
     pub anthropic_model: String,
     /// Play the record-start ping.
     pub sound_on_start: bool,
+    /// Read the focused field's text (Accessibility) so cleanup understands the
+    /// surroundings — names, thread tone, what the reply refers to.
+    #[serde(default = "default_true")]
+    pub context_awareness: bool,
+    /// Pause Spotify/Music while recording; resume afterwards.
+    #[serde(default = "default_true")]
+    pub mute_music_while_dictating: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -43,10 +107,13 @@ impl Default for Settings {
         Self {
             cleanup_mode: CleanupMode::default(),
             cleanup_level: CleanupLevel::Light,
+            style: StylePrefs::default(),
             openai_model: "gpt-4o-mini".to_string(),
             openai_base_url: String::new(),
             anthropic_model: "claude-haiku-4-5".to_string(),
             sound_on_start: true,
+            context_awareness: true,
+            mute_music_while_dictating: true,
         }
     }
 }

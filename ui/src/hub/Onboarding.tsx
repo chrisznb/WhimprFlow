@@ -154,7 +154,7 @@ export function Onboarding({
         </div>
         <p style={{ color: theme.textMuted, lineHeight: 1.5, margin: "0 0 24px" }}>
           Grant these to <b>WhimprFlow</b>, in order. Each turns green here the moment macOS applies
-          it — no relaunch needed.
+          it. No relaunch needed.
         </p>
 
         <Step
@@ -180,7 +180,7 @@ export function Onboarding({
         <Step
           n={3}
           title="Input Monitoring"
-          detail="Extra reliability for key detection. Optional — you can enter without it."
+          detail="Extra reliability for key detection. Optional. You can enter without it."
           done={inp}
           active={acc && mic && !inp}
           locked={!(acc && mic)}
@@ -210,7 +210,7 @@ export function Onboarding({
 
         <p style={{ fontSize: 12, color: theme.textFaint, lineHeight: 1.5, marginTop: 16 }}>
           If a permission stays grey after you flip it on in System Settings, toggle WhimprFlow off
-          and back on in that pane — the state here will update within a second.
+          and back on in that pane. The state here will update within a second.
         </p>
       </div>
     </div>

@@ -16,7 +16,7 @@ import {
 const MODES: { value: CleanupMode; label: string; hint: string }[] = [
   { value: "raw", label: "Raw", hint: "Paste exactly what you said" },
   { value: "local", label: "Local", hint: "On-device model (offline)" },
-  { value: "open_ai", label: "OpenAI", hint: "Cloud cleanup via OpenAI (or an OpenAI-compatible API like OpenRouter — set the base URL below)" },
+  { value: "open_ai", label: "OpenAI", hint: "Cloud cleanup via OpenAI (or an OpenAI-compatible API like OpenRouter, set the base URL below)" },
   { value: "anthropic", label: "Anthropic", hint: "Cloud cleanup via Claude" },
 ];
 
@@ -51,7 +51,7 @@ function KeyField({
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 13, marginBottom: 7, display: "flex", alignItems: "center", color: theme.textBody }}>
         <Dot ok={configured} />
-        {label} {configured ? "— configured" : "— not set"}
+        {label} {configured ? "(configured)" : "(not set)"}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <input
@@ -105,7 +105,7 @@ function PermRow({
       <div style={{ display: "flex", alignItems: "center", fontSize: 13 }}>
         <Dot ok={ok} />
         <span style={{ color: theme.textBody }}>
-          <b>{label}</b> <span style={{ color: theme.textMuted }}>— {detail}</span>
+          <b>{label}</b> <span style={{ color: theme.textMuted }}>{detail}</span>
         </span>
       </div>
       {ok ? (
@@ -132,7 +132,7 @@ export function SettingsPane({
 }) {
   return (
     <div style={{ maxWidth: 720 }}>
-      <PageTitle>Settings</PageTitle>
+      <PageTitle serif>Settings</PageTitle>
 
       <Card style={{ marginBottom: 16 }}>
         <SectionTitle sub="Where your dictation is cleaned up before it's typed.">Cleanup Engine</SectionTitle>
@@ -149,8 +149,10 @@ export function SettingsPane({
           label="OpenAI API key"
           configured={status.has_openai_key}
           onSave={(k) => {
-            setApiKey("openai", k);
-            setTimeout(refresh, 400);
+            void setApiKey("openai", k).then((err) => {
+              if (err) window.alert("Key wurde NICHT gespeichert: " + err);
+              setTimeout(refresh, 400);
+            });
           }}
         />
         <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
@@ -205,8 +207,10 @@ export function SettingsPane({
           label="Anthropic API key"
           configured={status.has_anthropic_key}
           onSave={(k) => {
-            setApiKey("anthropic", k);
-            setTimeout(refresh, 400);
+            void setApiKey("anthropic", k).then((err) => {
+              if (err) window.alert("Key wurde NICHT gespeichert: " + err);
+              setTimeout(refresh, 400);
+            });
           }}
         />
       </Card>
@@ -255,6 +259,43 @@ export function SettingsPane({
         </div>
       </Card>
 
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
+              Context awareness
+            </div>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 3 }}>
+              Reads the text around your cursor so cleanup understands names and what you're replying to. Stays on this Mac.
+            </div>
+          </div>
+          <Segmented
+            options={[
+              { value: "on", label: "On" },
+              { value: "off", label: "Off" },
+            ]}
+            value={settings.context_awareness ? "on" : "off"}
+            onChange={(v) => onChange({ ...settings, context_awareness: v === "on" })}
+          />
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
+            Mute music while dictating
+          </div>
+          <Segmented
+            options={[
+              { value: "on", label: "On" },
+              { value: "off", label: "Off" },
+            ]}
+            value={settings.mute_music_while_dictating ? "on" : "off"}
+            onChange={(v) => onChange({ ...settings, mute_music_while_dictating: v === "on" })}
+          />
+        </div>
+      </Card>
+
       <Card>
         <SectionTitle sub="Grant these to WhimprFlow, then quit and reopen the app if a dot stays grey.">
           Permissions
@@ -265,7 +306,7 @@ export function SettingsPane({
             label="Accessibility"
             detail={
               status.accessibility
-                ? "granted — Fn works everywhere + types your words"
+                ? "granted. Fn works everywhere and types your words"
                 : "the key one: makes Fn work in EVERY app AND types your words"
             }
             onClick={() => {
@@ -285,7 +326,7 @@ export function SettingsPane({
           <PermRow
             ok={status.input_monitoring}
             label="Input Monitoring"
-            detail="optional — extra reliability for key detection"
+            detail="optional, extra reliability for key detection"
             onClick={() => {
               requestInputMonitoring();
               setTimeout(refresh, 1000);

@@ -16,12 +16,13 @@ export function Card({
 }) {
   return (
     <div
+      className="wf-card"
       style={{
         background: theme.cardBg,
         border: `1px solid ${theme.border}`,
-        borderRadius: 16,
+        borderRadius: 14,
         padding: pad,
-        boxShadow: theme.shadow,
+        boxShadow: theme.shadowSoft,
         ...style,
       }}
     >
@@ -67,12 +68,12 @@ export function Button({
   const pad = size === "sm" ? "6px 12px" : "9px 16px";
   const fontSize = size === "sm" ? 12.5 : 13.5;
   const palettes: Record<string, CSSProperties> = {
-    dark: { background: disabled ? theme.textFaint : palette.slate900, color: "#fff", border: "none" },
+    dark: { background: disabled ? theme.textFaint : theme.btnBg, color: theme.btnText, border: "none" },
     accent: { background: disabled ? theme.textFaint : theme.accentDeep, color: "#fff", border: "none" },
     ghost: {
-      background: "transparent",
+      background: theme.track,
       color: theme.textBody,
-      border: `1px solid ${theme.borderStrong}`,
+      border: "none",
     },
   };
   return (
@@ -80,6 +81,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      className="wf-press"
       style={{
         cursor: disabled ? "default" : "pointer",
         borderRadius: 10,
@@ -91,12 +93,51 @@ export function Button({
         alignItems: "center",
         gap: 7,
         whiteSpace: "nowrap",
-        transition: "opacity 120ms ease",
         ...palettes[variant],
       }}
     >
       {children}
     </button>
+  );
+}
+
+// ── Tabs (Wispr-style: text row with an animated underline) ─────────────────
+export function Tabs<T extends string>({
+  options,
+  value,
+  onChange,
+}: {
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${theme.border}` }}>
+      {options.map((o) => {
+        const active = value === o.value;
+        return (
+          <button
+            key={o.value}
+            onClick={() => onChange(o.value)}
+            style={{
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              padding: "8px 2px 10px",
+              fontSize: 14,
+              fontFamily: font.ui,
+              fontWeight: active ? 650 : 500,
+              color: active ? theme.textStrong : theme.textMuted,
+              borderBottom: active ? `2px solid ${theme.textStrong}` : "2px solid transparent",
+              marginBottom: -1,
+              transition: "color 140ms ease, border-color 140ms ease",
+            }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -153,15 +194,23 @@ export function Segmented<T extends string>({
 }
 
 // ── Page heading ─────────────────────────────────────────────────────────────
-export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactNode }) {
+export function PageTitle({
+  children,
+  sub,
+  serif = false,
+}: {
+  children: ReactNode;
+  sub?: ReactNode;
+  serif?: boolean;
+}) {
   return (
     <div style={{ marginBottom: 22 }}>
       <h1
         style={{
-          fontFamily: font.serif,
-          fontSize: 30,
-          fontWeight: 600,
-          letterSpacing: -0.4,
+          fontFamily: serif ? font.serif : font.ui,
+          fontSize: serif ? 30 : 26,
+          fontWeight: serif ? 600 : 700,
+          letterSpacing: serif ? -0.4 : -0.5,
           margin: 0,
           color: theme.textStrong,
         }}

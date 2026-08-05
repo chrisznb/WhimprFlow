@@ -1,100 +1,68 @@
 # WhimprFlow
 
-A **local-first, cross-platform voice dictation app** — hold a key, speak, and clean text lands wherever your cursor is. Speech is transcribed on-device with Whisper and cleaned up (filler removal, self-corrections, punctuation, lists/newlines) by a local LLM, with an optional cloud path. It re-creates the workflow of a Wispr-Flow-style dictation tool from scratch, with its own name, palette, and code.
+A **local-first voice dictation app for macOS**. Tap a key, speak, and clean text lands wherever your cursor is. Speech is transcribed on-device with Whisper and cleaned up by a local LLM (filler removal, self-corrections, spoken punctuation, lists), with optional cloud cleanup.
 
-> ⚠️ **This is a proof of concept, vibe-coded in a few hours.** It works and the core loop is real, but it is rough and needs a lot of polish, testing, and hardening before it's anything like production quality. Treat it as a starting point, not a finished product.
+This is a heavily extended fork of [Blueturboguy07/WhimprFlow](https://github.com/Blueturboguy07/WhimprFlow) (MIT). Not affiliated with, endorsed by, or connected to Wispr Flow or any other product.
 
----
+## What it does
 
-## Platform status
+- **On-device ASR**: Whisper (whisper.cpp, Metal), multilingual with auto language detection. German and English work great, including mixed use.
+- **Local LLM cleanup**: Qwen (llama.cpp) removes fillers ("um", "ähm"), resolves spoken self-corrections ("Dienstag, nee warte, Donnerstag"), converts spoken punctuation ("Punkt", "question mark"), formats lists. Persistent KV cache: the prompt prefix is prefilled once, so cleanup is fast.
+- **Optional cloud cleanup**: OpenAI, Anthropic, or any OpenAI-compatible API (Mistral, OpenRouter, Groq) via a custom base URL. Keys live in the macOS keychain, never in files. Only the transcript text is sent, never audio.
+- **The pill**: a small floating bar above the Dock. Tap your dictation key (Fn) to toggle recording, hold it for push-to-talk, Esc cancels. Hover the pill for a mic button. Drag it anywhere; it snaps to screen edges and corners, and turns vertical on the side edges.
+- **Context awareness**: reads the text around your cursor (Accessibility API) so cleanup understands names and what you are replying to. Follow-up dictations within 90 seconds carry the previous one as context. Everything stays on your Mac; toggle in Settings.
+- **Snippets**: say a trigger phrase ("my email address"), get the stored replacement.
+- **Style**: formal / casual / very casual output per app category (personal chat, work chat, email, other), detected from the app you dictate into.
+- **Transforms**: select text anywhere, press Alt+1/2/3, and the selection is rewritten in place (polish, prompt-engineer, organize). Prompts and shortcuts are editable.
+- **Scratchpad**: a quiet autosaving page in the hub for long-form dictation.
+- **Quality-of-life**: personal dictionary with auto-learn, usage stats and streaks, silence-hallucination filter, smart spacing when dictating mid-text, pauses Spotify/Music while recording, menu-bar-only app with autostart.
 
-| Platform | Status |
-|----------|--------|
-| **macOS 14+** | **Built and working** — developed and tested locally (Apple Silicon). |
-| **Windows 10/11** | **Built and working** — compiles and runs on real Windows 11 (MSVC). Push-to-talk (hold **Right Ctrl**), Whisper ASR, clipboard+`SendInput` paste, and cloud cleanup (OpenAI or any OpenAI-compatible API, e.g. OpenRouter) are verified end-to-end. Auto-learn dictionary capture is still macOS-only; the local (on-device) LLM cleanup worker builds but is CPU-only for now (no CUDA/Vulkan yet). |
+## Install
 
-Both platforms are build-from-source only for now — there's no signed installer/release pipeline yet, so `git clone` + the steps below is the way to run it on either OS.
+### Option 1: Download
 
----
+Grab the latest `.zip` from [Releases](../../releases), unzip, and drag `WhimprFlow.app` into `/Applications`.
 
-## What's in it
+The app is not notarized, so on first launch macOS will warn you: right-click the app, choose **Open**, then confirm. Grant Accessibility and Microphone when asked.
 
-- **On-device ASR** — Whisper (via `whisper.cpp`), running on the GPU. Ships a small English model by default; larger models are auto-preferred if present.
-- **Local LLM cleanup** — Qwen3-4B-Instruct (via `llama.cpp`) runs as a separate worker process and cleans the transcript: removes fillers, resolves spoken self-corrections ("meet at 2… no wait, 3" → "3"), applies spoken punctuation, and formats lists/paragraphs. Deterministic gates guard against over-editing, with a raw-transcript fallback.
-- **Optional cloud cleanup** — OpenAI (default) / Anthropic, behind one trait. Keys are stored in the OS keychain (macOS Keychain / Windows Credential Manager), **never in a file**.
-- **Floating pill UI** — a small always-on-top bar showing idle / recording / processing states.
-- **Personal dictionary + auto-learn** — teach it names and terms; on macOS a post-paste Accessibility observer watches for a one-word correction and learns it automatically (conservative filters to avoid junk). *Auto-learn capture is macOS-only so far.*
-- **Usage stats** — words dictated, words-per-minute, day streak, time saved, 7-day activity, all stored locally.
+### Option 2: Build from source
 
-## Architecture
-
-Tauri v2 (Rust core + React/TypeScript webviews). Platform-agnostic logic lives in `crates/whimpr-core` (state machine, cleanup prompts/gates, dictionary, stats). ASR, audio, and the LLM worker are separate crates. The Tauri app in `src-tauri/` hosts the UI and wires the native hotkey/injection per platform (`hotkey.rs` on macOS, `win.rs` on Windows).
-
-```
-crates/
-  whimpr-core/       state machine, cleanup (prompts/gates/levels), dictionary, stats
-  whimpr-asr/        Whisper ASR
-  whimpr-audio/      mic capture + resampling
-  whimpr-cleanup/    OpenAI / Anthropic cloud providers
-  whimpr-llm-worker/ local llama.cpp cleanup worker (separate process)
-src-tauri/           Tauri shell: hotkey/paste/autolearn (macOS), win.rs (Windows)
-ui/                  React Hub + overlay pill
-docs/                spec, architecture notes, research
-```
-
-## Build (macOS)
-
-Requires Rust (stable), Node + pnpm, and the Xcode command-line tools.
+Requires Rust (stable), Node + pnpm, cmake, and the Xcode command-line tools.
 
 ```bash
-cd ui && pnpm install && cd ..
-# Dev:
-./dev.sh
-# Or a signed .app bundle:
+git clone https://github.com/chrisznb/WhimprFlow.git
+cd WhimprFlow/ui && pnpm install && cd ..
 ui/node_modules/.bin/tauri build --bundles app
+cargo build --release -p whimpr-llm-worker
+cp target/release/whimpr-llm-worker target/release/bundle/macos/WhimprFlow.app/Contents/MacOS/
+cp -R target/release/bundle/macos/WhimprFlow.app /Applications/
 ```
 
-Models are **not** committed (they're multi-GB). Place them under
-`~/Library/Application Support/WhimprFlow/models/` (macOS) —
-a Whisper `ggml-*.en.bin` and a Qwen GGUF for local cleanup.
+If you have an Apple Development certificate, sign the app with it so macOS permissions survive rebuilds:
 
-## Build (Windows)
-
-Requires Rust (stable, MSVC toolchain), [CMake](https://cmake.org/download/), LLVM/clang
-(for `bindgen` — set `LIBCLANG_PATH` to its `bin/` dir if it isn't auto-detected), the
-**Visual Studio Build Tools** (Desktop development with C++ workload), and Node + pnpm.
-
-```powershell
-cd ui; pnpm install; cd ..
-# Dev (starts the Vite UI server + the app with hot reload):
-ui\node_modules\.bin\tauri.CMD dev
-# Or a release build:
-ui\node_modules\.bin\tauri.CMD build
+```bash
+codesign --force --deep -s "Apple Development: Your Name (TEAMID)" /Applications/WhimprFlow.app
 ```
 
-Place models under `%APPDATA%\WhimprFlow\models\` — a Whisper `ggml-*.en.bin`
-(e.g. `ggml-base.en.bin` from
-[huggingface.co/ggerganov/whisper.cpp](https://huggingface.co/ggerganov/whisper.cpp))
-and, optionally, a Qwen GGUF for local (offline) cleanup. No local LLM model?
-Set Cleanup Engine to **OpenAI** in the Hub's Settings pane and point the base URL at
-any OpenAI-compatible API — for example `https://openrouter.ai/api/v1` for
-[OpenRouter](https://openrouter.ai), with your OpenRouter key pasted into the
-"OpenAI API key" field.
+### Models
 
-Push-to-talk defaults to **Right Ctrl** (hold to record, release to paste) — the
-Windows analogue of Wispr Flow's own `Ctrl+Win` default; a configurable hotkey is
-planned but not wired up yet.
+Models are not bundled (multi-GB). Put them in `~/Library/Application Support/WhimprFlow/models/`:
 
-The Windows GPU backend for Whisper/llama.cpp is CPU-only for now (the macOS build
-uses Metal); CUDA/Vulkan feature flags can be added in `crates/whimpr-asr/Cargo.toml`
-and `crates/whimpr-llm-worker/Cargo.toml` for anyone wanting to pick that up.
+```bash
+mkdir -p ~/Library/Application\ Support/WhimprFlow/models
+cd ~/Library/Application\ Support/WhimprFlow/models
+# Whisper (multilingual, quantized, 547 MB)
+curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin
+# Local cleanup LLM (2.4 GB) — optional if you use a cloud engine
+curl -L -o qwen3-4b-instruct-2507-q4_k_m.gguf https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+```
 
-## Notes & disclaimers
+No local LLM? Set the cleanup engine to OpenAI in Settings and point the base URL at any OpenAI-compatible API.
 
-- **Not affiliated with, endorsed by, or connected to Wispr Flow or any other product.** WhimprFlow is an independent, from-scratch reimplementation of the dictation workflow, with its own name, branding, colors, strings, and code. No third-party code or assets are included.
-- **Proof of concept.** Rushed, under-tested, and missing plenty (auto-learn is macOS-only and conservative, no installer/notarization/signing pipeline on either OS, error handling is thin). Contributions and fixes welcome.
-- **Privacy.** ASR and default cleanup run on-device. Cloud cleanup is opt-in and only sends the transcript (not audio) to the provider you choose. API keys never touch disk in plaintext.
+## Privacy
+
+ASR and default cleanup run on-device. Cloud cleanup is opt-in and sends only the transcript text to the provider you choose. Context awareness reads the focused text field locally and never leaves your Mac. API keys are stored in the macOS keychain.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). Based on [Blueturboguy07/WhimprFlow](https://github.com/Blueturboguy07/WhimprFlow).

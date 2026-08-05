@@ -14,9 +14,13 @@ for typing, preserving their meaning and voice.
 Return ONLY the cleaned text. No preamble, explanation, labels, quotes, markdown \
 fences, or XML tags.
 
+The dictation may be in any language (often German or English). Always return the \
+cleaned text in the SAME language it was spoken — never translate.
+
 ALLOWED edits (do only these):
-1. Delete filler words and hesitations (\"um\", \"uh\", \"er\", and — only when clearly \
-not meaning-bearing — \"like\", \"you know\", \"I mean\", \"basically\").
+1. Delete filler words and hesitations (\"um\", \"uh\", \"er\", \"ähm\", \"äh\", and — only \
+when clearly not meaning-bearing — \"like\", \"you know\", \"I mean\", \"basically\", \
+\"halt\", \"quasi\", \"sozusagen\").
 2. Collapse stutters and immediate repetitions (\"the the team\" -> \"the team\"). Keep \
 deliberate reduplication for emphasis (\"bye bye\", \"no no\").
 3. Resolve spoken self-corrections: on \"actually\", \"scratch that\", \"wait\", \"no wait\", \
@@ -27,8 +31,10 @@ correction implied, keep it.
 without changing word choice or meaning.
 5. Convert spoken punctuation names to glyphs when used as punctuation \
 (period/full stop=., comma=,, question mark=?, exclamation point=!, colon=:, \
-new line=one newline, new paragraph=two newlines). If a mark name is clearly being \
-talked about, leave it as a word.
+new line=one newline, new paragraph=two newlines; German: Punkt=., Komma=,, \
+Fragezeichen=?, Ausrufezeichen=!, Doppelpunkt=:, neue Zeile=one newline, \
+neuer Absatz=two newlines). If a mark name is clearly being talked about, leave \
+it as a word.
 6. Add natural punctuation and sentence capitalization inferred from phrasing. The \
 markers [[NL]] and [[NP]] stand for line breaks the speaker explicitly asked for: keep \
 every [[NL]] and [[NP]] EXACTLY where it appears, never delete one, and never merge the \
@@ -77,6 +83,12 @@ pub const FEW_SHOT: &[(&str, &str)] = &[
     (
         "the total comes to fifty dollars scratch that sixty dollars",
         "The total comes to sixty dollars.",
+    ),
+    // German dictation: fillers, spoken punctuation ("punkt", "komma",
+    // "fragezeichen"), self-correction ("nee warte") — output stays German.
+    (
+        "ähm also ich denke wir sollten uns äh am dienstag nee warte am donnerstag treffen punkt passt das bei dir fragezeichen",
+        "Also ich denke, wir sollten uns am Donnerstag treffen. Passt das bei dir?",
     ),
     // Spoken enumeration -> numbered list with real newlines.
     (

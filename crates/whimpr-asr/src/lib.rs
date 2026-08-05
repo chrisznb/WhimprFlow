@@ -17,7 +17,10 @@ impl WhisperEngine {
         let path = model_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("model path is not valid UTF-8"))?;
-        let ctx = WhisperContext::new_with_params(path, WhisperContextParameters::default())
+        let mut cparams = WhisperContextParameters::default();
+        // Big speedup on Metal for the large encoder; we don't use DTW timestamps.
+        cparams.flash_attn(true);
+        let ctx = WhisperContext::new_with_params(path, cparams)
             .map_err(|e| anyhow::anyhow!("failed to load whisper model: {e}"))?;
         Ok(Self { ctx })
     }
@@ -41,7 +44,8 @@ impl AsrEngine for WhisperEngine {
             .map_err(|e| anyhow::anyhow!("whisper create_state: {e}"))?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_language(Some("en"));
+        // Auto-detect per utterance — mixed German/English dictation.
+        params.set_language(Some("auto"));
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);

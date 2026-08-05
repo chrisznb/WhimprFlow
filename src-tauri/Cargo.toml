@@ -26,6 +26,8 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 arboard = "3"
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Windows platform layer (low-level keyboard hook, SendInput paste, foreground-app
@@ -43,6 +45,7 @@ windows = { version = "0.58", features = [
 macos-accessibility-client = "0.0.1"
 # Frontmost-app detection (paste-target → per-app cleanup formatting). Already in
 # the tree via Tauri; declared here so we can call NSWorkspace directly.
+objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }

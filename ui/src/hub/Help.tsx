@@ -6,12 +6,12 @@ const TIPS: { emoji: string; title: string; body: string }[] = [
   {
     emoji: "🎙️",
     title: "Hold to dictate",
-    body: "Press and hold your dictation key (Fn by default), speak naturally, then release. WhimprFlow transcribes on-device — nothing leaves your Mac unless you choose a cloud cleanup engine.",
+    body: "Press and hold your dictation key (Fn by default), speak naturally, then release. WhimprFlow transcribes on-device. Nothing leaves your Mac unless you choose a cloud cleanup engine.",
   },
   {
     emoji: "✨",
     title: "Cleanup happens where your cursor is",
-    body: "Release the key and your cleaned-up text is typed straight into whatever app has focus — email, chat, notes, code. Choose how aggressive the cleanup is under Settings → Auto Cleanup.",
+    body: "Release the key and your cleaned-up text is typed straight into whatever app has focus: email, chat, notes, code. Choose how aggressive the cleanup is under Settings → Auto Cleanup.",
   },
   {
     emoji: "📖",

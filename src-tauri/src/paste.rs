@@ -80,18 +80,46 @@ mod imp {
         }
     }
 
-    fn post_cmd_v() {
+    fn post_cmd_key(keycode: u16) {
         unsafe {
-            let down = CGEventCreateKeyboardEvent(null(), KEYCODE_V, true);
+            let down = CGEventCreateKeyboardEvent(null(), keycode, true);
             CGEventSetFlags(down, KCG_FLAG_MASK_COMMAND);
             CGEventPost(KCG_HID_EVENT_TAP, down);
             CFRelease(down as *const c_void);
 
-            let up = CGEventCreateKeyboardEvent(null(), KEYCODE_V, false);
+            let up = CGEventCreateKeyboardEvent(null(), keycode, false);
             CGEventSetFlags(up, KCG_FLAG_MASK_COMMAND);
             CGEventPost(KCG_HID_EVENT_TAP, up);
             CFRelease(up as *const c_void);
         }
+    }
+
+    fn post_cmd_v() {
+        post_cmd_key(KEYCODE_V);
+    }
+
+    const KEYCODE_C: u16 = 8;
+
+    /// Copy the current selection (Cmd+C) and return it. Restores the previous
+    /// clipboard if nothing was selected. Returns None when there is no selection.
+    pub fn copy_selection() -> anyhow::Result<Option<String>> {
+        use arboard::Clipboard;
+        if !is_trusted() {
+            return Err(anyhow::anyhow!("no Accessibility permission — cannot copy"));
+        }
+        let mut cb = Clipboard::new()?;
+        let saved = cb.get_text().ok();
+        // Clear so we can tell whether Cmd+C actually produced something.
+        let _ = cb.set_text(String::new());
+        post_cmd_key(KEYCODE_C);
+        std::thread::sleep(Duration::from_millis(250));
+        let sel = cb.get_text().ok().filter(|s| !s.is_empty());
+        if sel.is_none() {
+            if let Some(prev) = saved {
+                let _ = cb.set_text(prev);
+            }
+        }
+        Ok(sel)
     }
 
     pub fn paste_text(text: &str) -> anyhow::Result<()> {
@@ -119,9 +147,14 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    input_monitoring_granted, is_trusted, microphone_granted, paste_text, prompt_accessibility,
-    request_input_monitoring,
+    copy_selection, input_monitoring_granted, is_trusted, microphone_granted, paste_text,
+    prompt_accessibility, request_input_monitoring,
 };
+
+#[cfg(not(target_os = "macos"))]
+pub fn copy_selection() -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn paste_text(_text: &str) -> anyhow::Result<()> {

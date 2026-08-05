@@ -1,43 +1,53 @@
 // Light "Hub" theme, layered on top of the shared design tokens. This governs
 // only the desktop Hub window — the floating overlay pill stays on its own dark
-// palette. We match Wispr's LIGHT Hub layout but with OUR teal accent + warm
-// neutral surfaces (never Wispr's green).
+// palette. Matched to the real Wispr Flow Hub: near-white warm gray page, white
+// cards with hairline borders, black primary buttons, teal data accent, lilac
+// badge surfaces, dark plum banner.
 
 import { palette } from "../tokens/values";
 
 export const theme = {
   // Surfaces
-  pageBg: "#F6F4EF", // warm light neutral page background
-  sidebarBg: "#F1ECE3", // a touch deeper/warmer than the page
+  pageBg: "#F7F6F2",
+  sidebarBg: "#F7F6F2",
   cardBg: "#FFFFFF",
-  cardBgSubtle: "#FBFAF7",
-  track: "#ECE7DD", // segmented-control / gauge-track neutral
-  hover: "#F1EDE5",
+  cardBgSubtle: "#FAF9F7",
+  track: "#EFEDE9", // segmented-control / gauge-track neutral
+  hover: "#ECEAE5", // sidebar active pill + row hover
 
   // Borders
-  border: "#E7E1D6",
-  borderStrong: "#DAD3C6",
+  border: "#E9E6E0",
+  borderStrong: "#DAD6CE",
 
-  // Text (dark slate on light)
-  textStrong: palette.slate900,
-  textBody: palette.slate800,
-  textMuted: palette.slate500,
-  textFaint: palette.slate400,
+  // Text
+  textStrong: "#1A1A1A",
+  textBody: "#2B2830",
+  textMuted: "#7A7580",
+  textFaint: "#9B96A0",
 
-  // Accent (teal/cyan — OUR trade dress)
+  // Accent (deep teal — data/graphs/links)
   accent: palette.accent500,
   accentDeep: palette.accent600,
   accentBright: palette.accent400,
-  accentSoft: "rgba(34,195,182,0.12)",
-  accentSoftHover: "rgba(34,195,182,0.18)",
-  accentSoftBorder: "rgba(34,195,182,0.30)",
+  accentSoft: "rgba(42,99,88,0.10)",
+  accentSoftHover: "rgba(42,99,88,0.16)",
+  accentSoftBorder: "rgba(42,99,88,0.28)",
+
+  // Primary button (black, like Wispr's "Add new" / "Upgrade")
+  btnBg: "#1A1A1A",
+  btnText: "#FFFFFF",
+
+  // Lilac badge surfaces
+  lilacBg: palette.lilacBg,
+  lilacText: palette.lilacText,
+  lilacBorder: palette.lilacBorder,
 
   // Elevation
-  shadow: "0 1px 2px rgba(17,20,25,0.04), 0 6px 20px rgba(17,20,25,0.05)",
-  shadowSoft: "0 1px 2px rgba(17,20,25,0.05)",
+  shadow: "0 1px 2px rgba(26,26,26,0.03), 0 4px 16px rgba(26,26,26,0.04)",
+  shadowSoft: "0 1px 2px rgba(26,26,26,0.04)",
 
-  // Dark banner gradient (slate900 -> slate700)
+  // Dark banner gradient (plum, like Wispr's photo banners)
   bannerFrom: palette.slate900,
-  bannerVia: palette.slate800,
-  bannerTo: palette.slate700,
+  bannerVia: palette.slate850,
+  bannerTo: palette.slate800,
 } as const;

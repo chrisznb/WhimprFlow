@@ -4,6 +4,14 @@
 
 export type CleanupMode = "raw" | "local" | "open_ai" | "anthropic";
 export type CleanupLevel = "none" | "light" | "medium" | "high";
+export type StyleLevel = "formal" | "casual" | "very_casual";
+
+export interface StylePrefs {
+  personal: StyleLevel;
+  work: StyleLevel;
+  email: StyleLevel;
+  other: StyleLevel;
+}
 
 export interface Settings {
   cleanup_mode: CleanupMode;
@@ -14,6 +22,9 @@ export interface Settings {
   openai_base_url: string;
   anthropic_model: string;
   sound_on_start: boolean;
+  context_awareness: boolean;
+  mute_music_while_dictating: boolean;
+  style: StylePrefs;
 }
 
 export interface Status {
@@ -57,6 +68,9 @@ export const DEFAULT_SETTINGS: Settings = {
   openai_base_url: "",
   anthropic_model: "claude-haiku-4-5",
   sound_on_start: true,
+  context_awareness: true,
+  mute_music_while_dictating: true,
+  style: { personal: "casual", work: "formal", email: "formal", other: "casual" },
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -84,10 +98,12 @@ export async function getStatus(): Promise<Status> {
   try {
     return await invoke<Status>("get_status");
   } catch {
+    // Plain-browser (vite dev) fallback: pretend permissions are granted so the
+    // Hub renders past the onboarding gate for UI iteration.
     return {
-      accessibility: false,
-      microphone: false,
-      input_monitoring: false,
+      accessibility: true,
+      microphone: true,
+      input_monitoring: true,
       has_openai_key: false,
       has_anthropic_key: false,
     };
@@ -127,11 +143,21 @@ export async function requestInputMonitoring(): Promise<void> {
   }
 }
 
-export async function setApiKey(provider: "openai" | "anthropic", key: string): Promise<void> {
+/// Returns null on success, an error message on failure (so the UI can show
+/// why a key did NOT get stored instead of pretending it did).
+export async function setApiKey(provider: "openai" | "anthropic", key: string): Promise<string | null> {
+  let inv: typeof invoke;
   try {
-    await invoke<void>("set_api_key", { provider, key });
+    const mod = await import("@tauri-apps/api/core");
+    inv = mod.invoke;
   } catch {
-    /* browser preview */
+    return null; // browser preview
+  }
+  try {
+    await inv<void>("set_api_key", { provider, key });
+    return null;
+  } catch (e) {
+    return String(e);
   }
 }
 
@@ -182,3 +208,79 @@ export async function removeDictionaryEntry(correct: string): Promise<void> {
   }
 }
 
+
+// ── Snippets ────────────────────────────────────────────────────────────────
+export interface Snippet {
+  trigger: string;
+  replacement: string;
+}
+
+export async function getSnippets(): Promise<Snippet[]> {
+  try {
+    return await invoke<Snippet[]>("get_snippets");
+  } catch {
+    return [
+      { trigger: "my email address", replacement: "chris@example.com" },
+    ];
+  }
+}
+
+export async function addSnippet(trigger: string, replacement: string): Promise<void> {
+  try {
+    await invoke<void>("add_snippet", { trigger, replacement });
+  } catch {
+    /* browser preview — no-op */
+  }
+}
+
+export async function removeSnippet(trigger: string): Promise<void> {
+  try {
+    await invoke<void>("remove_snippet", { trigger });
+  } catch {
+    /* browser preview — no-op */
+  }
+}
+
+// ── Scratchpad ──────────────────────────────────────────────────────────────
+export async function getScratchpad(): Promise<string> {
+  try {
+    return await invoke<string>("get_scratchpad");
+  } catch {
+    return "";
+  }
+}
+
+export async function setScratchpad(text: string): Promise<void> {
+  try {
+    await invoke<void>("set_scratchpad", { text });
+  } catch {
+    /* browser preview — no-op */
+  }
+}
+
+// ── Transforms ──────────────────────────────────────────────────────────────
+export interface Transform {
+  name: string;
+  shortcut: string;
+  prompt: string;
+}
+
+export async function getTransforms(): Promise<Transform[]> {
+  try {
+    return await invoke<Transform[]>("get_transforms");
+  } catch {
+    return [
+      { name: "Polish", shortcut: "Alt+1", prompt: "Improve clarity and conciseness." },
+      { name: "Prompt Engineer", shortcut: "Alt+2", prompt: "Rewrite as a structured AI prompt." },
+      { name: "Organize", shortcut: "Alt+3", prompt: "Organize these thoughts clearly." },
+    ];
+  }
+}
+
+export async function setTransforms(list: Transform[]): Promise<void> {
+  try {
+    await invoke<void>("set_transforms", { list });
+  } catch {
+    /* browser preview — no-op */
+  }
+}

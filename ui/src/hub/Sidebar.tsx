@@ -47,12 +47,13 @@ function NavItem({ item, active, onClick }: { item: NavDef; active: boolean; onC
         fontSize: 13.5,
         fontFamily: font.ui,
         fontWeight: active ? 600 : 500,
-        color: active ? theme.accentDeep : theme.textBody,
-        background: active ? theme.accentSoft : "transparent",
-        transition: "background 120ms ease, color 120ms ease",
+        color: active ? theme.textStrong : theme.textBody,
+        background: active ? theme.hover : "transparent",
+        transition: "background 140ms ease, color 140ms ease",
       }}
+      className="wf-nav"
     >
-      <Icon name={item.icon} size={18} style={{ color: active ? theme.accentDeep : theme.textMuted }} />
+      <Icon name={item.icon} size={18} style={{ color: active ? theme.textStrong : theme.textMuted }} />
       {item.label}
     </button>
   );
@@ -73,31 +74,17 @@ export function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => v
     >
       {/* Wordmark + Local badge */}
       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 8px 20px" }}>
+        <Icon name="mic" size={19} style={{ color: theme.textStrong }} />
         <span
           style={{
-            fontFamily: font.serif,
-            fontSize: 20,
-            fontWeight: 600,
-            letterSpacing: -0.3,
+            fontFamily: font.ui,
+            fontSize: 19,
+            fontWeight: 700,
+            letterSpacing: -0.4,
             color: theme.textStrong,
           }}
         >
-          WhimprFlow
-        </span>
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: 0.4,
-            textTransform: "uppercase",
-            color: theme.accentDeep,
-            background: theme.accentSoft,
-            border: `1px solid ${theme.accentSoftBorder}`,
-            borderRadius: 999,
-            padding: "2px 7px",
-          }}
-        >
-          Local
+          Whimpr
         </span>
       </div>
 

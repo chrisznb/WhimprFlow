@@ -4,7 +4,7 @@ import { theme } from "./theme";
 import { Card, useStats } from "./ui";
 import { Icon } from "./icons";
 import { getHistory, type HistoryItem, type StatsSummary } from "./api";
-import { dayKey, dayLabel, fmtCompact, fmtDuration, fmtNum, fmtTimeOfDay, wordsReference } from "./format";
+import { dayKey, dayLabel, fmtCompact, fmtDuration, fmtNum, fmtTimeOfDay, prettyApp, wordsReference } from "./format";
 
 const UNLOCK_WORDS = 500;
 
@@ -49,7 +49,7 @@ function Banner() {
           Cleanup works anywhere you write.
         </div>
         <p style={{ color: palette.slate300, fontSize: 14, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Hold your key, speak, and WhimprFlow types clean text wherever your cursor is.
+          Tap or hold your key, speak, and WhimprFlow types clean text wherever your cursor is.
         </p>
       </div>
     </div>
@@ -95,7 +95,7 @@ function HistoryRow({ item }: { item: HistoryItem }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, lineHeight: 1.5, color: theme.textBody }}>{item.text}</div>
         {item.app && (
-          <div style={{ fontSize: 11, color: theme.textFaint, marginTop: 3 }}>{item.app}</div>
+          <div style={{ fontSize: 11, color: theme.textFaint, marginTop: 3 }}>{prettyApp(item.app)}</div>
         )}
       </div>
     </div>
@@ -164,7 +164,7 @@ function HistorySection({ history }: { history: HistoryItem[] }) {
       <div style={{ padding: "6px 18px 14px" }}>
         {history.length === 0 ? (
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-            Your dictations will show up here. Hold your key and start speaking.
+            Your dictations will show up here. Tap your key and start speaking.
           </div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
@@ -232,7 +232,9 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Your stats</div>
-        <div style={{ fontSize: 12, color: theme.accentDeep, fontWeight: 600 }}>🔥 keep it up</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: theme.accentDeep, fontWeight: 600 }}>
+          <Icon name="flame" size={13} /> keep it up
+        </div>
       </div>
 
       <div style={{ textAlign: "center", margin: "16px 0 6px" }}>
@@ -266,7 +268,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
         </div>
       ) : (
         <div style={{ fontSize: 12, color: theme.textFaint, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
-          Keep dictating to unlock richer stats — {fmtNum(Math.max(0, UNLOCK_WORDS - stats.total_words))} words to go.
+          Keep dictating to unlock richer stats. {fmtNum(Math.max(0, UNLOCK_WORDS - stats.total_words))} words to go.
         </div>
       )}
     </Card>
@@ -296,9 +298,9 @@ export function Home() {
       <div style={{ marginBottom: 22 }}>
         <h1
           style={{
-            fontFamily: font.serif,
-            fontSize: 32,
-            fontWeight: 600,
+            fontFamily: font.ui,
+            fontSize: 27,
+            fontWeight: 700,
             letterSpacing: -0.5,
             margin: 0,
             color: theme.textStrong,
@@ -307,7 +309,7 @@ export function Home() {
           Welcome back
         </h1>
         <p style={{ color: theme.textMuted, fontSize: 14, margin: "8px 0 0" }}>
-          {today > 0 ? `${fmtNum(today)} words dictated today.` : "Ready when you are — hold your key and speak."}
+          {today > 0 ? `${fmtNum(today)} words dictated today.` : "Ready when you are. Tap or hold your key and speak."}
         </p>
       </div>
 

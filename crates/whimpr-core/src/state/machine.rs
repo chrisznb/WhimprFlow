@@ -109,12 +109,16 @@ impl StateMachine {
                     // Genuine hold: finalize and paste.
                     self.finalize(session)
                 } else {
-                    // Quick tap: discard, then watch for a second press to lock.
-                    self.state = DictationState::AwaitingLock { tap_up_ms: at_ms };
-                    vec![
-                        Action::DiscardCapture { session },
-                        Action::ShowBar(BarState::Idle),
-                    ]
+                    // Quick tap: flip the running session into hands-free (locked)
+                    // mode and keep recording — the next press stops it. Single-tap
+                    // toggle, no audio discarded.
+                    self.state = DictationState::Recording {
+                        mode: RecordMode::Locked,
+                        session,
+                        started_ms,
+                        warned: false,
+                    };
+                    vec![]
                 }
             }
 
@@ -272,35 +276,22 @@ mod tests {
     }
 
     #[test]
-    fn double_tap_enters_hands_free_lock() {
+    fn single_tap_toggles_hands_free_lock() {
         let mut m = StateMachine::new();
         m.step(down(BindingId::PushToTalk, 0));
-        // Quick tap (below HOLD_MIN_MS): discards, awaits a lock.
+        // Quick tap (below HOLD_MIN_MS): the running session flips to locked
+        // hands-free — nothing is discarded, recording continues.
         let a = m.step(up(BindingId::PushToTalk, 50));
-        assert!(a.iter().any(|x| matches!(x, Action::DiscardCapture { .. })));
-        assert!(matches!(m.state(), DictationState::AwaitingLock { .. }));
-
-        // Second press within DOUBLE_TAP_MS → locked recording.
-        let a = m.step(down(BindingId::PushToTalk, 200));
-        assert!(a.iter().any(|x| matches!(x, Action::ShowBar(BarState::Locked))));
+        assert!(!a.iter().any(|x| matches!(x, Action::DiscardCapture { .. })));
         assert!(matches!(m.state(), DictationState::Recording { mode: RecordMode::Locked, .. }));
 
-        // Re-press ends the locked session.
-        let a = m.step(down(BindingId::PushToTalk, 5_000));
-        assert!(a.iter().any(|x| matches!(x, Action::StopCaptureAndFinalize { .. })));
-    }
+        // Time passing does not end it.
+        m.step(Input::Tick { now_ms: 10_000 });
+        assert!(matches!(m.state(), DictationState::Recording { mode: RecordMode::Locked, .. }));
 
-    #[test]
-    fn lone_tap_times_out_to_idle_and_pastes_nothing() {
-        let mut m = StateMachine::new();
-        m.step(down(BindingId::PushToTalk, 0));
-        m.step(up(BindingId::PushToTalk, 50));
-        // No second press; tick past the window.
-        let a = m.step(Input::Tick { now_ms: 50 + DOUBLE_TAP_MS + 1 });
-        assert!(a.iter().any(|x| matches!(x, Action::ShowBar(BarState::Idle))));
-        assert!(matches!(m.state(), DictationState::Idle));
-        // Crucially, no pipeline ever ran.
-        assert!(!a.iter().any(|x| matches!(x, Action::RunPipeline { .. })));
+        // The next press ends the locked session.
+        let a = m.step(down(BindingId::PushToTalk, 12_000));
+        assert!(a.iter().any(|x| matches!(x, Action::StopCaptureAndFinalize { .. })));
     }
 
     #[test]

@@ -1,54 +1,64 @@
-// WhimprFlow design tokens — "Deep-Slate / Aqua-Whimpr".
-// Single source of truth, imported by CSS-in-TS and by the waveform canvas.
-// Deliberately distinct from Wispr's trade dress (own hues, accent, fonts, strings).
+// WhimprFlow design tokens — matched to the real Wispr Flow look (personal build).
+// Extracted from the app's own bundles/screenshots: near-white warm surfaces,
+// dark plum pill (#312D37 — Wispr's own overlay color), deep teal data accent,
+// lilac badges, black primary buttons, EB Garamond display + Figtree UI type.
 
 export const palette = {
-  // Cool near-black slate scale (our pill hue).
-  slate950: "#0C0E12",
-  slate900: "#111419",
-  slate850: "#161A20",
-  slate800: "#1C212A",
-  slate700: "#28303B",
-  slate600: "#3A4453",
-  slate500: "#5A6675",
-  slate400: "#8A93A3",
-  slate300: "#B8C0CC",
-  slate200: "#D9DEE6",
-  slate100: "#EDF0F4",
-  slate050: "#F7F9FB",
+  // Warm plum-charcoal scale (pill + dark banner hue).
+  slate950: "#141216",
+  slate900: "#312D37", // pill base (Wispr overlay color)
+  slate850: "#3A3540",
+  slate800: "#49454D", // Wispr's muted dark
+  slate700: "#565159",
+  slate600: "#6E6870",
+  slate500: "#8A858D",
+  slate400: "#A7A2AA",
+  slate300: "#C9C5CC",
+  slate200: "#E2DFE4",
+  slate100: "#EFEDF0",
+  slate050: "#F9F8F6",
 
-  // Cyan/teal accent.
-  accent400: "#3FE0D0",
-  accent500: "#22C3B6",
-  accent600: "#12A99D",
-  accentGlow: "rgba(58,232,216,0.45)",
+  // Deep teal — Wispr's data/graph accent (gauges, bars, heatmap).
+  accent400: "#3E8578",
+  accent500: "#2A6358",
+  accent600: "#1F4F46",
+  accentGlow: "rgba(62,133,120,0.35)",
 
-  // Pale mint pill text + waveform bars.
-  pillText: "#DAF3EA",
-  pillTextMuted: "#8FB6AD",
-  waveBar: "#CFF3EA",
+  // Lilac — badges ("Pro Trial"), selected style cards, trial surfaces.
+  lilacBg: "#F3EAFD",
+  lilacText: "#7C4DCB",
+  lilacBorder: "#C9A8F0",
+
+  // Orange — the focus ring Wispr uses on active settings nav items.
+  focusRing: "#E8A33D",
+
+  // Pill text + waveform bars.
+  pillText: "#F5F3F0",
+  pillTextMuted: "#A7A2AA",
+  waveBar: "#F5F3F0",
 
   // Semantic.
-  error: "#FF6B6B",
-  warn: "#F5B454",
+  error: "#E5484D",
+  warn: "#E8A33D",
   info: "#5AA9FF",
-  success: "#22C3B6",
+  success: "#2A6358",
 } as const;
 
-// Recolored status ring (teal → aqua → periwinkle → violet).
-export const ringStops = ["#1FB6A8", "#43E6D6", "#57B0FF", "#9E86FF", "#43E6D6"] as const;
+// Status ring (teal ramp).
+export const ringStops = ["#2A6358", "#3E8578", "#7FB8AC", "#C9E2DC", "#2A6358"] as const;
 
 export const pillFill = {
   base: palette.slate900,
   raised: palette.slate850,
-  border: "rgba(255,255,255,0.06)",
-  shadow: "0 8px 28px rgba(0,0,0,0.55)",
+  border: "rgba(255,255,255,0.07)",
+  shadow: "none",
 } as const;
 
-// Geometry, verbatim from the SPEC (logical px).
+// Geometry (logical px). Pill sizes match the real Flow Bar: a slim idle nub
+// that morphs into a compact waveform bar while recording.
 export const geometry = {
-  morphMs: 420,
-  idleBar: { w: 50, h: 30 },
+  morphMs: 380,
+  idleBar: { w: 45, h: 7 },
   restNub: { w: 30, h: 6, r: 6 },
   miniPill: { w: 330, h: 32, r: 22.5 },
   card: { w: 380, h: 130, r: 24 },
@@ -58,12 +68,13 @@ export const geometry = {
 } as const;
 
 export const motion = {
-  ease: "cubic-bezier(0.05, 0.6, 0.4, 0.95)",
+  // Slight overshoot for the pill morph — feels springy, not linear.
+  ease: "cubic-bezier(0.34, 1.3, 0.5, 1)",
   springDurationS: 0.2,
 } as const;
 
 export const font = {
-  ui: '"Inter", "Geist", system-ui, sans-serif',
-  serif: '"Fraunces", "Newsreader", Georgia, serif',
+  ui: '"Figtree", "Inter", system-ui, sans-serif',
+  serif: '"EB Garamond", "Newsreader", Georgia, serif',
   mono: '"JetBrains Mono", ui-monospace, monospace',
 } as const;

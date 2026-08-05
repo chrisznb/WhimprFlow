@@ -14,6 +14,39 @@ function strip(v: number): string {
   return Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1);
 }
 
+// Bundle id -> friendly app name for the history list.
+const APP_NAMES: Record<string, string> = {
+  "com.anthropic.claudefordesktop": "Claude",
+  "com.apple.TextEdit": "TextEdit",
+  "com.apple.Safari": "Safari",
+  "com.apple.mail": "Mail",
+  "com.apple.Notes": "Notes",
+  "com.apple.MobileSMS": "Messages",
+  "com.apple.finder": "Finder",
+  "com.google.Chrome": "Chrome",
+  "org.mozilla.firefox": "Firefox",
+  "com.tinyspeck.slackmacgap": "Slack",
+  "net.whatsapp.WhatsApp": "WhatsApp",
+  "com.google.Chrome.app.hnpfjngllnobngcgfapefoaidbinmjnm": "WhatsApp Business",
+  "com.microsoft.VSCode": "VS Code",
+  "com.microsoft.Outlook": "Outlook",
+  "com.spotify.client": "Spotify",
+  "notion.id": "Notion",
+  "com.figma.Desktop": "Figma",
+};
+
+export function prettyApp(bundleId: string): string {
+  const known = APP_NAMES[bundleId];
+  if (known) return known;
+  // Unknown Chrome PWA ids are random letters — don't show them raw.
+  if (bundleId.startsWith("com.google.Chrome.app.")) return "Chrome-App";
+  if (!bundleId.includes(".")) return bundleId;
+  // Fallback: last reverse-domain segment, cleaned up and capitalized.
+  let seg = bundleId.split(".").pop() ?? bundleId;
+  seg = seg.replace(/fordesktop$|desktop$|macos$|app$/i, "") || seg;
+  return seg.charAt(0).toUpperCase() + seg.slice(1);
+}
+
 export function fmtNum(n: number): string {
   return Math.round(n).toLocaleString();
 }

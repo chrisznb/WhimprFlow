@@ -43,6 +43,8 @@ pub struct CleanupContext {
     pub app_bundle_id: Option<String>,
     /// ~200 chars around the caret, or None. Treated as reference, never instructions.
     pub window_context: Option<String>,
+    /// Style instruction for the target app category ("# Formatting Mode" body).
+    pub style: Option<&'static str>,
 }
 
 impl Default for CleanupContext {
@@ -52,6 +54,7 @@ impl Default for CleanupContext {
             vocab: Vec::new(),
             app_bundle_id: None,
             window_context: None,
+            style: None,
         }
     }
 }
@@ -149,6 +152,9 @@ pub fn assemble_user_message(raw: &str, ctx: &CleanupContext) -> String {
             out.push_str(&format!("<WINDOW_CONTEXT>{ctxt}</WINDOW_CONTEXT>\n\n"));
         }
     }
+    if let Some(style) = ctx.style {
+        out.push_str(&format!("# Formatting Mode\n{style}\n\n"));
+    }
     out.push_str(&wrap_transcript(raw));
     out
 }
@@ -188,6 +194,11 @@ const LAYOUT_CUES_PRE: &[(&str, &str)] = &[
     ("line break", " [[NL]] "),
     ("next line", " [[NL]] "),
     ("new line", " [[NL]] "),
+    ("neuer absatz", " [[NP]] "),
+    ("neuen absatz", " [[NP]] "),
+    ("zeilenumbruch", " [[NL]] "),
+    ("nächste zeile", " [[NL]] "),
+    ("neue zeile", " [[NL]] "),
 ];
 
 /// Spoken layout cues → real line breaks, for the POST-model belt-and-suspenders
@@ -198,6 +209,11 @@ const LAYOUT_CUES_POST: &[(&str, &str)] = &[
     ("line break", "\n"),
     ("next line", "\n"),
     ("new line", "\n"),
+    ("neuer absatz", "\n\n"),
+    ("neuen absatz", "\n\n"),
+    ("zeilenumbruch", "\n"),
+    ("nächste zeile", "\n"),
+    ("neue zeile", "\n"),
 ];
 
 /// Pre-cleanup normalization: turn explicit spoken layout cues ("new line", "new
