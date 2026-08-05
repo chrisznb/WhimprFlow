@@ -167,6 +167,34 @@ function EntryRow({ entry, onRemove }: { entry: DictEntry; onRemove: () => void 
   );
 }
 
+function ImportContactsButton({ onDone }: { onDone: () => void }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setMsg("Importing…");
+          void import("./api").then(({ importContacts }) =>
+            importContacts().then((r) => {
+              if ("added" in r) {
+                setMsg(r.added > 0 ? `${r.added} names imported` : "No new names");
+                onDone();
+              } else {
+                setMsg("Failed: " + r.error);
+              }
+            })
+          );
+        }}
+      >
+        Import contact names
+      </Button>
+      {msg && <span style={{ fontSize: 12.5, color: theme.textMuted }}>{msg}</span>}
+    </div>
+  );
+}
+
 export function DictionaryPane() {
   const [entries, setEntries] = useState<DictEntry[]>([]);
   const [tab, setTab] = useState<Tab>("all");
@@ -206,10 +234,13 @@ export function DictionaryPane() {
             Teach WhimprFlow the words, names, and jargon it should always get right.
           </p>
         </div>
-        <Button variant="accent" onClick={() => setAdding((a) => !a)}>
-          <Icon name="plus" size={15} style={{ color: "#fff" }} />
-          Add new
-        </Button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ImportContactsButton onDone={load} />
+          <Button variant="accent" onClick={() => setAdding((a) => !a)}>
+            <Icon name="plus" size={15} style={{ color: "#fff" }} />
+            Add new
+          </Button>
+        </div>
       </div>
 
       <Tabs tab={tab} onChange={setTab} />

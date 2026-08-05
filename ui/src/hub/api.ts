@@ -325,3 +325,25 @@ export async function assistantChat(history: [string, string][]): Promise<Assist
     return null;
   }
 }
+
+export async function importContacts(): Promise<{ added: number } | { error: string }> {
+  try {
+    const added = await invoke<number>("import_contacts");
+    return { added };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
+export interface SnippetSuggestion {
+  phrase: string;
+  count: number;
+}
+
+export async function getSnippetSuggestions(): Promise<SnippetSuggestion[]> {
+  try {
+    return await invoke<SnippetSuggestion[]>("get_snippet_suggestions");
+  } catch {
+    return [];
+  }
+}

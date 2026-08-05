@@ -140,3 +140,73 @@ pub fn focused_text_context(max_chars: usize) -> Option<String> {
 pub fn focused_text_context(_max_chars: usize) -> Option<String> {
     None
 }
+
+/// Is the focused UI element a text field (has an AXValue), even an empty one?
+/// Used to detect "paste would go nowhere" before typing the dictation.
+#[cfg(target_os = "macos")]
+pub fn has_text_focus() -> bool {
+    use std::ffi::c_void;
+    use std::os::raw::c_char;
+
+    type AXUIElementRef = *const c_void;
+    type CFTypeRef = *const c_void;
+    type CFStringRef = *const c_void;
+    type CFAllocatorRef = *const c_void;
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+        fn AXUIElementCopyAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: *mut CFTypeRef,
+        ) -> i32;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFStringCreateWithCString(
+            alloc: CFAllocatorRef,
+            c_str: *const c_char,
+            encoding: u32,
+        ) -> CFStringRef;
+        fn CFRelease(cf: CFTypeRef);
+        fn CFGetTypeID(cf: CFTypeRef) -> usize;
+        fn CFStringGetTypeID() -> usize;
+    }
+    const UTF8: u32 = 0x0800_0100;
+
+    unsafe {
+        let mk = |s: &str| {
+            let c = std::ffi::CString::new(s).unwrap();
+            CFStringCreateWithCString(std::ptr::null(), c.as_ptr(), UTF8)
+        };
+        let system = AXUIElementCreateSystemWide();
+        if system.is_null() {
+            return false;
+        }
+        let attr_focused = mk("AXFocusedUIElement");
+        let mut focused: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(system, attr_focused, &mut focused);
+        CFRelease(attr_focused);
+        CFRelease(system);
+        if err != 0 || focused.is_null() {
+            return false;
+        }
+        let attr_value = mk("AXValue");
+        let mut value: CFTypeRef = std::ptr::null();
+        let err = AXUIElementCopyAttributeValue(focused as AXUIElementRef, attr_value, &mut value);
+        CFRelease(attr_value);
+        CFRelease(focused);
+        if err != 0 || value.is_null() {
+            return false;
+        }
+        let is_string = CFGetTypeID(value) == CFStringGetTypeID();
+        CFRelease(value);
+        is_string
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn has_text_focus() -> bool {
+    true
+}

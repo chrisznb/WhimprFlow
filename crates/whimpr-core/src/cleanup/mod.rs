@@ -45,6 +45,8 @@ pub struct CleanupContext {
     pub window_context: Option<String>,
     /// Style instruction for the target app category ("# Formatting Mode" body).
     pub style: Option<&'static str>,
+    /// Translate the cleaned output into this language (spoken prefix command).
+    pub translate_to: Option<String>,
 }
 
 impl Default for CleanupContext {
@@ -55,6 +57,7 @@ impl Default for CleanupContext {
             app_bundle_id: None,
             window_context: None,
             style: None,
+            translate_to: None,
         }
     }
 }
@@ -154,6 +157,12 @@ pub fn assemble_user_message(raw: &str, ctx: &CleanupContext) -> String {
     }
     if let Some(style) = ctx.style {
         out.push_str(&format!("# Formatting Mode\n{style}\n\n"));
+    }
+    if let Some(lang) = ctx.translate_to.as_deref() {
+        out.push_str(&format!(
+            "# Output Language\nAfter cleaning, TRANSLATE the final text into {lang}. \
+             Return only the translated text; keep names, numbers, and URLs unchanged.\n\n"
+        ));
     }
     out.push_str(&wrap_transcript(raw));
     out

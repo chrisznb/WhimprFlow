@@ -340,6 +340,16 @@ fn get_settings() -> whimpr_core::Settings {
 }
 
 #[tauri::command]
+fn import_contacts() -> Result<u32, String> {
+    hotkey::import_contacts()
+}
+
+#[tauri::command]
+fn get_snippet_suggestions() -> Vec<serde_json::Value> {
+    hotkey::snippet_suggestions()
+}
+
+#[tauri::command]
 fn assistant_chat(history: Vec<(String, String)>) -> serde_json::Value {
     hotkey::assistant_chat(history)
 }
@@ -390,11 +400,21 @@ fn set_transforms(app: tauri::AppHandle, list: Vec<hotkey::Transform>) {
     register_transform_shortcuts(&app);
 }
 
-/// (Re-)register the global transform shortcuts from the saved list.
+/// (Re-)register the global transform shortcuts from the saved list, plus the
+/// hold-to-speak modes: Alt+Space = spoken command on the selection, Alt+W =
+/// ask anywhere (answer pasted at the cursor).
 fn register_transform_shortcuts(app: &tauri::AppHandle) {
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
     let gs = app.global_shortcut();
     let _ = gs.unregister_all();
+    let _ = gs.on_shortcut("Alt+Space", |_app, _sc, event| match event.state {
+        tauri_plugin_global_shortcut::ShortcutState::Pressed => hotkey::command_mode_down(),
+        tauri_plugin_global_shortcut::ShortcutState::Released => hotkey::command_mode_up(),
+    });
+    let _ = gs.on_shortcut("Alt+W", |_app, _sc, event| match event.state {
+        tauri_plugin_global_shortcut::ShortcutState::Pressed => hotkey::ask_mode_down(),
+        tauri_plugin_global_shortcut::ShortcutState::Released => hotkey::ask_mode_up(),
+    });
     for t in hotkey::transforms_list() {
         let accel = t.shortcut.clone();
         let accel_cb = accel.clone();
@@ -596,6 +616,8 @@ pub fn run() {
             get_orientation,
             get_voice_profile,
             assistant_chat,
+            import_contacts,
+            get_snippet_suggestions,
             get_snippets,
             add_snippet,
             remove_snippet,

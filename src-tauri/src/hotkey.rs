@@ -531,8 +531,13 @@ return acted"#,
     /// Clean a raw transcript per the current settings (mode + level), feeding in the
     /// dictionary vocabulary relevant to this utterance. Falls back to raw whenever
     /// cleanup is off, the provider is unavailable, it errors, or the gates reject it.
+    #[allow(dead_code)]
     fn clean_transcript(raw: &str) -> String {
-        let cleaned = clean_transcript_inner(raw);
+        clean_transcript_with(raw, None)
+    }
+
+    fn clean_transcript_with(raw: &str, translate_to: Option<String>) -> String {
+        let cleaned = clean_transcript_inner(raw, translate_to);
         // Spoken snippets expand after cleanup so triggers survive the LLM pass.
         SNIPPETS
             .get()
@@ -561,7 +566,7 @@ return acted"#,
         level.modifier()
     }
 
-    fn clean_transcript_inner(raw: &str) -> String {
+    fn clean_transcript_inner(raw: &str, translate_to: Option<String>) -> String {
         let settings = current_settings();
         let level = settings.cleanup_level;
         if matches!(settings.cleanup_mode, CleanupMode::Raw) || level.bypasses_llm() {
@@ -602,12 +607,14 @@ return acted"#,
                 }
             }
         }
+        let translating = translate_to.is_some();
         let ctx = CleanupContext {
             level,
             vocab,
             app_bundle_id,
             style: Some(style),
             window_context,
+            translate_to,
             ..Default::default()
         };
         // Run the on-device model with the same prompt + per-app formatting.
@@ -642,7 +649,9 @@ return acted"#,
                 // model missed into real line breaks, strip stray code fences, cap blank
                 // lines. Guarantees no "new line"/"new paragraph" word reaches the cursor.
                 let cleaned = whimpr_core::cleanup::post_process(&cleaned);
-                if whimpr_core::cleanup::evaluate_gates(&raw_out, &cleaned, level).passed() {
+                if translating
+                    || whimpr_core::cleanup::evaluate_gates(&raw_out, &cleaned, level).passed()
+                {
                     cleaned
                 } else {
                     eprintln!("[whimpr] cleanup gate rejected the edit — pasting raw");
@@ -898,6 +907,15 @@ return acted"#,
                             None
                         };
                     let transcribed: anyhow::Result<String> = match cloud_text {
+                        // Cloud sometimes returns empty for quiet-but-real audio;
+                        // give the local model a shot before giving up.
+                        Some(t) if t.trim().is_empty() && peak > 0.02 => {
+                            eprintln!("[whimpr] cloud ASR empty despite audio — trying local");
+                            match ASR.get().cloned() {
+                                Some(asr) => asr.transcribe(&pcm).map(|t| t.text),
+                                None => Ok(t),
+                            }
+                        }
                         Some(t) => Ok(t),
                         None => match ASR.get().cloned() {
                             Some(asr) => asr.transcribe(&pcm).map(|t| t.text),
@@ -921,7 +939,25 @@ return acted"#,
                                 raw = String::new();
                             }
                             // Clean the transcript (cloud LLM if configured), then paste.
-                            let mut text = clean_transcript(&raw);
+                            match SPEAK_MODE.swap(0, Ordering::SeqCst) {
+                                1 => {
+                                    if !raw.is_empty() {
+                                        run_spoken_command(&raw);
+                                    }
+                                    finish();
+                                    return;
+                                }
+                                2 => {
+                                    if !raw.is_empty() {
+                                        run_spoken_ask(&raw);
+                                    }
+                                    finish();
+                                    return;
+                                }
+                                _ => {}
+                            }
+                            let (translate_to, raw) = split_translate_prefix(&raw);
+                            let mut text = clean_transcript_with(&raw, translate_to);
                             if text != raw {
                                 eprintln!("[whimpr] CLEANED:   \"{}\"", text);
                             }
@@ -939,7 +975,18 @@ return acted"#,
                                 }
                             }
                             if !text.is_empty() {
-                                if let Err(e) = crate::paste::paste_text(&text) {
+                                if !crate::appctx::has_text_focus() {
+                                    eprintln!("[whimpr] no text field focused — clipboard only");
+                                    if let Ok(mut cb) = arboard::Clipboard::new() {
+                                        let _ = cb.set_text(text.clone());
+                                    }
+                                    emit_bar(&app2, "clipboard");
+                                    let app3 = app2.clone();
+                                    std::thread::spawn(move || {
+                                        std::thread::sleep(Duration::from_millis(3200));
+                                        emit_bar(&app3, "idle");
+                                    });
+                                } else if let Err(e) = crate::paste::paste_text(&text) {
                                     eprintln!("[whimpr] paste failed: {e}");
                                 }
                                 *LAST_DICTATION
@@ -1151,6 +1198,7 @@ Supported actions:
 - {"type":"remove_snippet","trigger":"<spoken phrase>"}
 - {"type":"add_dictionary","correct":"<correct spelling>","mishears":["<misheard as>", ...]}
 - {"type":"append_scratchpad","text":"<text to append>"}
+- {"type":"search_history","query":"<keyword>"} (searches the user's dictation history; results come back to you in a follow-up turn, then answer)
 
 Rules: only include actions the user clearly asked for; use an empty actions array for plain conversation; never invent personal data; keep replies short and concrete. Always return valid JSON, no markdown fences."#;
 
@@ -1222,6 +1270,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             .unwrap_or("")
             .to_string();
         let mut done: Vec<String> = Vec::new();
+        let mut search_results: Option<String> = None;
         if let Some(actions) = v.get("actions").and_then(|a| a.as_array()) {
             for a in actions {
                 match a.get("type").and_then(|t| t.as_str()) {
@@ -1257,6 +1306,37 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
                         dictionary_add(c.to_string(), mishears);
                         done.push(format!("Dictionary: {c}"));
                     }
+                    Some("search_history") => {
+                        if let Some(q) = a.get("query").and_then(|x| x.as_str()) {
+                            let ql = q.to_lowercase();
+                            let stats = STATS
+                                .get()
+                                .map(|s| s.lock().unwrap().clone())
+                                .unwrap_or_default();
+                            let mut hits: Vec<String> = stats
+                                .sessions
+                                .iter()
+                                .rev()
+                                .filter(|sess| sess.text.to_lowercase().contains(&ql))
+                                .take(20)
+                                .map(|sess| {
+                                    let days_ago =
+                                        (std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_secs() as i64)
+                                            .unwrap_or(0)
+                                            - sess.ts_unix as i64)
+                                            / 86_400;
+                                    format!("[{days_ago}d ago] {}", sess.text)
+                                })
+                                .collect();
+                            if hits.is_empty() {
+                                hits.push("(no matches)".to_string());
+                            }
+                            search_results = Some(hits.join("\n"));
+                            done.push(format!("History searched: \"{q}\""));
+                        }
+                    }
                     Some("append_scratchpad") => {
                         if let Some(t) = a.get("text").and_then(|x| x.as_str()) {
                             let mut cur = scratchpad_get();
@@ -1273,7 +1353,393 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
                 }
             }
         }
+        // Second round when the model asked for a history search.
+        if let Some(results) = search_results {
+            let mut follow = messages.clone();
+            follow.push(("assistant".to_string(), cleaned.clone()));
+            follow.push((
+                "user".to_string(),
+                format!(
+                    "[search results]\n{results}\n\nAnswer the user's question now (same JSON \
+                     shape, usually with an empty actions array)."
+                ),
+            ));
+            if let Some(second) = read_openai_key().and_then(|key| {
+                whimpr_cleanup::chat_completion_messages(
+                    &current_settings().openai_base_url,
+                    &key,
+                    &current_settings().openai_model,
+                    &follow,
+                )
+                .ok()
+            }) {
+                let cleaned2 = second
+                    .trim()
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim()
+                    .to_string();
+                let reply2 = serde_json::from_str::<serde_json::Value>(&cleaned2)
+                    .ok()
+                    .and_then(|v| v.get("reply").and_then(|r| r.as_str()).map(String::from))
+                    .unwrap_or(cleaned2);
+                return serde_json::json!({ "reply": reply2, "actions_done": done });
+            }
+        }
         serde_json::json!({ "reply": reply, "actions_done": done })
+    }
+
+    // --- Command mode / Ask-anywhere (hold shortcut, speak) ---------------
+
+    /// 0 = normal dictation, 1 = command mode (rewrite selection), 2 = ask.
+    static SPEAK_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+    static CMD_SELECTION: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+    /// Hold-to-speak command mode: grabs the selection, then records the spoken
+    /// instruction while the shortcut is held.
+    pub fn command_mode_down() {
+        let sel = crate::paste::copy_selection().ok().flatten();
+        if sel.is_none() {
+            eprintln!("[whimpr] command mode: no selection");
+            if let Some(app) = APP.get() {
+                emit_bar(app, "error");
+                reset_bar_soon(app);
+            }
+            return;
+        }
+        *CMD_SELECTION.get_or_init(|| Mutex::new(None)).lock().unwrap() = sel;
+        SPEAK_MODE.store(1, Ordering::SeqCst);
+        let target = crate::appctx::frontmost_bundle_id();
+        *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target;
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::HandsFree,
+            at_ms: now_ms(),
+        }));
+    }
+
+    pub fn command_mode_up() {
+        if SPEAK_MODE.load(Ordering::SeqCst) != 1 {
+            return;
+        }
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::PushToTalk,
+            at_ms: now_ms(),
+        }));
+    }
+
+    /// Hold-to-speak "ask anywhere": records a question, answers via the
+    /// assistant, pastes the reply at the cursor.
+    pub fn ask_mode_down() {
+        SPEAK_MODE.store(2, Ordering::SeqCst);
+        let target = crate::appctx::frontmost_bundle_id();
+        *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target;
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::HandsFree,
+            at_ms: now_ms(),
+        }));
+    }
+
+    pub fn ask_mode_up() {
+        if SPEAK_MODE.load(Ordering::SeqCst) != 2 {
+            return;
+        }
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::PushToTalk,
+            at_ms: now_ms(),
+        }));
+    }
+
+    /// Apply a spoken instruction to the captured selection (command mode).
+    fn run_spoken_command(instruction: &str) {
+        let Some(selection) = CMD_SELECTION
+            .get()
+            .and_then(|m| m.lock().unwrap().take())
+        else {
+            return;
+        };
+        let system = format!(
+            "You are a text editing engine. Apply the spoken instruction to the text. \
+             Return ONLY the rewritten text, no preamble, no fences, keep the text's \
+             language unless the instruction says otherwise.\nInstruction: {instruction}"
+        );
+        let settings = current_settings();
+        let result = read_openai_key()
+            .and_then(|key| {
+                whimpr_cleanup::chat_completion(
+                    &settings.openai_base_url,
+                    &key,
+                    &settings.openai_model,
+                    &system,
+                    &selection,
+                )
+                .ok()
+            })
+            .or_else(|| {
+                LOCAL.get().and_then(|m| {
+                    m.lock().unwrap().as_mut().and_then(|w| {
+                        w.cleanup(&[
+                            whimpr_core::cleanup::CleanupMsg {
+                                role: "system",
+                                content: system.clone(),
+                            },
+                            whimpr_core::cleanup::CleanupMsg {
+                                role: "user",
+                                content: selection.clone(),
+                            },
+                        ])
+                        .ok()
+                    })
+                })
+            });
+        match result {
+            Some(out) if !out.trim().is_empty() => {
+                if let Err(e) = crate::paste::paste_text(out.trim()) {
+                    eprintln!("[whimpr] command paste failed: {e}");
+                }
+            }
+            _ => eprintln!("[whimpr] spoken command produced no output"),
+        }
+    }
+
+    /// Answer a spoken question via the assistant and paste the reply.
+    fn run_spoken_ask(question: &str) {
+        let res = assistant_chat(vec![("user".to_string(), question.to_string())]);
+        let reply = res.get("reply").and_then(|r| r.as_str()).unwrap_or("");
+        if !reply.is_empty() {
+            if let Err(e) = crate::paste::paste_text(reply) {
+                eprintln!("[whimpr] ask paste failed: {e}");
+            }
+        }
+    }
+
+    /// Spoken translation prefix ("auf Englisch: ..."), returning the target
+    /// language and the remaining transcript.
+    fn split_translate_prefix(raw: &str) -> (Option<String>, String) {
+        let trimmed = raw.trim_start();
+        let lower = trimmed.to_lowercase();
+        const PREFIXES: [(&str, &str); 8] = [
+            ("auf englisch", "English"),
+            ("in english", "English"),
+            ("auf deutsch", "German"),
+            ("in german", "German"),
+            ("auf spanisch", "Spanish"),
+            ("auf franzoesisch", "French"),
+            ("auf französisch", "French"),
+            ("auf italienisch", "Italian"),
+        ];
+        for (pfx, lang) in PREFIXES {
+            if lower.starts_with(pfx) {
+                let rest = trimmed[pfx.len()..]
+                    .trim_start_matches([':', ',', '.', '!', ' '])
+                    .to_string();
+                if rest.chars().count() > 2 {
+                    return (Some(lang.to_string()), rest);
+                }
+            }
+        }
+        (None, raw.to_string())
+    }
+
+    // --- Contacts import ---------------------------------------------------
+
+    /// Pull contact names from macOS Contacts into the dictionary (spelling
+    /// authority for names). Asks for the Contacts permission on first use.
+    pub fn import_contacts() -> Result<u32, String> {
+        let out = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(r#"tell application "Contacts" to get name of every person"#)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        let names = String::from_utf8_lossy(&out.stdout);
+        let existing: std::collections::HashSet<String> = dictionary_entries()
+            .into_iter()
+            .map(|e| e.correct.to_lowercase())
+            .collect();
+        let mut added = 0u32;
+        for name in names.split(", ") {
+            let name = name.trim();
+            if name.chars().count() < 3 || name.chars().any(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            if existing.contains(&name.to_lowercase()) {
+                continue;
+            }
+            dictionary_add(name.to_string(), Vec::new());
+            added += 1;
+        }
+        Ok(added)
+    }
+
+    // --- Snippet suggestions ----------------------------------------------
+
+    /// Frequently repeated 4-6-word phrases from the history that aren't
+    /// snippets yet — candidates for one-phrase expansion.
+    pub fn snippet_suggestions() -> Vec<serde_json::Value> {
+        let stats = STATS
+            .get()
+            .map(|s| s.lock().unwrap().clone())
+            .unwrap_or_default();
+        let existing: std::collections::HashSet<String> = snippets_entries()
+            .into_iter()
+            .map(|s| s.replacement.to_lowercase())
+            .collect();
+        let mut freq: std::collections::HashMap<String, u32> = Default::default();
+        for sess in &stats.sessions {
+            let words: Vec<&str> = sess.text.split_whitespace().collect();
+            for n in 4..=6 {
+                for win in words.windows(n) {
+                    let g = win.join(" ");
+                    if g.chars().count() >= 18 {
+                        *freq.entry(g).or_default() += 1;
+                    }
+                }
+            }
+        }
+        let mut list: Vec<(String, u32)> = freq
+            .into_iter()
+            .filter(|(g, c)| *c >= 4 && !existing.contains(&g.to_lowercase()))
+            .collect();
+        list.sort_by_key(|(g, c)| std::cmp::Reverse((*c, g.len())));
+        // Drop overlapping sub-phrases of higher-ranked suggestions.
+        let mut out: Vec<(String, u32)> = Vec::new();
+        for (g, c) in list {
+            if !out
+                .iter()
+                .any(|(o, _)| o.to_lowercase().contains(&g.to_lowercase()))
+            {
+                out.push((g, c));
+            }
+            if out.len() >= 5 {
+                break;
+            }
+        }
+        out.into_iter()
+            .map(|(g, c)| serde_json::json!({ "phrase": g, "count": c }))
+            .collect()
+    }
+
+    // --- Update check + weekly review -------------------------------------
+
+    fn notify(title: &str, body: &str) {
+        let script = format!(
+            "display notification \"{}\" with title \"{}\"",
+            body.replace('"', "'"),
+            title.replace('"', "'")
+        );
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .spawn();
+    }
+
+    /// Once at startup: compare the newest GitHub release against this build.
+    fn check_for_update(current: String) {
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(15));
+            let Ok(v) = whimpr_cleanup::http_get_json(
+                "https://api.github.com/repos/chrisznb/WhimprFlow/releases/latest",
+            ) else {
+                return;
+            };
+            let latest = v
+                .get("tag_name")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .trim_start_matches('v')
+                .to_string();
+            if !latest.is_empty() && latest != current {
+                eprintln!("[whimpr] update available: {latest} (running {current})");
+                notify(
+                    "WhimprFlow update available",
+                    &format!("Version {latest} is on GitHub (you run {current})."),
+                );
+            }
+        });
+    }
+
+    fn week_key(secs: i64) -> i64 {
+        // Monday-based week bucket of local time.
+        let days = (secs + tz_offset_secs()).div_euclid(86_400);
+        (days + 3).div_euclid(7) // 1970-01-01 was a Thursday -> +3 aligns Monday
+    }
+
+    /// Sunday-evening weekly review: short LLM summary of the week's dictation,
+    /// delivered as a notification and appended to the scratchpad.
+    fn spawn_weekly_review() {
+        std::thread::spawn(|| loop {
+            std::thread::sleep(Duration::from_secs(1800));
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
+            let local = now + tz_offset_secs();
+            let weekday = ((local.div_euclid(86_400) + 4).rem_euclid(7)) as u32; // 0=Sun
+            let hour = (local.rem_euclid(86_400) / 3600) as u32;
+            if weekday != 0 || hour < 18 {
+                continue;
+            }
+            let marker = support_dir().join("last-review.json");
+            let this_week = week_key(now);
+            let last: i64 = std::fs::read_to_string(&marker)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0);
+            if last >= this_week {
+                continue;
+            }
+            let stats = STATS
+                .get()
+                .map(|s| s.lock().unwrap().clone())
+                .unwrap_or_default();
+            let week_sessions: Vec<_> = stats
+                .sessions
+                .iter()
+                .filter(|s| now - (s.ts_unix as i64) < 7 * 86_400)
+                .collect();
+            if week_sessions.len() < 5 {
+                let _ = std::fs::write(&marker, this_week.to_string());
+                continue;
+            }
+            let words: u64 = week_sessions.iter().map(|s| s.words as u64).sum();
+            let sample: String = week_sessions
+                .iter()
+                .rev()
+                .take(50)
+                .map(|s| format!("- {}\n", s.text))
+                .collect();
+            let settings = current_settings();
+            let summary = read_openai_key().and_then(|key| {
+                whimpr_cleanup::chat_completion(
+                    &settings.openai_base_url,
+                    &key,
+                    &settings.openai_model,
+                    "Write a friendly 3-4 sentence weekly dictation review: main topics, \
+                     notable patterns, one fun observation. Use the dominant language of \
+                     the samples. No dashes, no bullet points, plain sentences only.",
+                    &format!("This week: {words} words across {} dictations.\nSamples:\n{sample}",
+                        week_sessions.len()),
+                )
+                .ok()
+            });
+            if let Some(text) = summary {
+                let mut pad = scratchpad_get();
+                if !pad.is_empty() && !pad.ends_with('\n') {
+                    pad.push('\n');
+                }
+                pad.push_str(&format!("\n## Wochen-Review\n{text}\n"));
+                scratchpad_set(&pad);
+                notify(
+                    "WhimprFlow weekly review",
+                    &format!("{words} words this week. Full review is in your Scratchpad."),
+                );
+                eprintln!("[whimpr] weekly review written");
+            }
+            let _ = std::fs::write(&marker, this_week.to_string());
+        });
     }
 
     // --- Voice profile (Insights -> Your Voice) ---------------------------
@@ -1677,6 +2143,13 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
 
         rebuild_providers();
 
+        check_for_update(
+            APP.get()
+                .map(|a| a.package_info().version.to_string())
+                .unwrap_or_default(),
+        );
+        spawn_weekly_review();
+
         // Start the local cleanup worker in the background (model load takes a few
         // seconds; the first local cleanup waits for it, subsequent ones are fast).
         std::thread::spawn(|| {
@@ -1769,6 +2242,27 @@ pub use imp::{
     stats_summary, transforms_list, transforms_save, trigger_cancel, trigger_hands_free,
     trigger_stop, update_settings, voice_profile,
 };
+#[cfg(target_os = "macos")]
+pub use imp::{
+    ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, import_contacts,
+    snippet_suggestions,
+};
+#[cfg(not(target_os = "macos"))]
+pub fn command_mode_down() {}
+#[cfg(not(target_os = "macos"))]
+pub fn command_mode_up() {}
+#[cfg(not(target_os = "macos"))]
+pub fn ask_mode_down() {}
+#[cfg(not(target_os = "macos"))]
+pub fn ask_mode_up() {}
+#[cfg(not(target_os = "macos"))]
+pub fn import_contacts() -> Result<u32, String> {
+    Ok(0)
+}
+#[cfg(not(target_os = "macos"))]
+pub fn snippet_suggestions() -> Vec<serde_json::Value> {
+    Vec::new()
+}
 #[cfg(target_os = "macos")]
 pub use imp::assistant_chat;
 #[cfg(not(target_os = "macos"))]

@@ -20,6 +20,11 @@ const TIPS: { icon: IconName; title: string; body: string }[] = [
     body: 'Open Dictionary and add names, jargon, or acronyms it keeps mishearing. Add the correct spelling plus any "also heard as" variants and WhimprFlow will fix them automatically.',
   },
   {
+    icon: "assistant",
+    title: "Speak commands and questions",
+    body: "Hold Alt+Space with text selected and speak an instruction ('make this formal') to rewrite it in place. Hold Alt+W anywhere, ask a question, and the answer is typed at your cursor. Start a dictation with 'auf Englisch:' to translate as you speak.",
+  },
+  {
     icon: "settings",
     title: "Pick a cleanup engine",
     body: "Under Settings → Cleanup Engine, run fully offline (Local), paste exactly what you said (Raw), or add an OpenAI / Anthropic key for cloud cleanup. Keys are stored in your macOS keychain.",

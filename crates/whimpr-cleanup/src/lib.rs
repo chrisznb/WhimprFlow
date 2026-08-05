@@ -278,3 +278,12 @@ pub fn chat_completion_messages(
         .trim()
         .to_string())
 }
+
+/// Small JSON GET helper (update check etc.).
+pub fn http_get_json(url: &str) -> anyhow::Result<serde_json::Value> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .user_agent("WhimprFlow")
+        .build()?;
+    Ok(client.get(url).send()?.json()?)
+}

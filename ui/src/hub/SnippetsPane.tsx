@@ -3,7 +3,14 @@ import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Button, Card, PageTitle } from "./ui";
 import { Icon } from "./icons";
-import { addSnippet, getSnippets, removeSnippet, type Snippet } from "./api";
+import {
+  addSnippet,
+  getSnippets,
+  getSnippetSuggestions,
+  removeSnippet,
+  type Snippet,
+  type SnippetSuggestion,
+} from "./api";
 
 const inputStyle = {
   width: "100%",
@@ -62,7 +69,11 @@ function AddForm({ onDone }: { onDone: () => void }) {
 
 export function SnippetsPane() {
   const [items, setItems] = useState<Snippet[]>([]);
-  const load = () => void getSnippets().then(setItems);
+  const [suggestions, setSuggestions] = useState<SnippetSuggestion[]>([]);
+  const load = () => {
+    void getSnippets().then(setItems);
+    void getSnippetSuggestions().then(setSuggestions);
+  };
   useEffect(load, []);
 
   return (
@@ -71,6 +82,29 @@ export function SnippetsPane() {
         Snippets
       </PageTitle>
       <AddForm onDone={load} />
+      {suggestions.length > 0 && (
+        <Card style={{ marginBottom: 16, background: theme.lilacBg, borderColor: theme.lilacBorder }}>
+          <div style={{ fontSize: 13.5, fontWeight: 650, color: theme.textStrong, marginBottom: 10 }}>
+            You dictate these a lot. Save as snippets?
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {suggestions.map((sg) => (
+              <div key={sg.phrase} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, fontSize: 13, color: theme.textBody, overflowWrap: "anywhere" }}>
+                  {"\u201C"}{sg.phrase}{"\u201D"} <span style={{ color: theme.textFaint }}>({sg.count}x)</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void addSnippet(sg.phrase.split(" ").slice(0, 3).join(" "), sg.phrase).then(load)}
+                >
+                  Save
+                </Button>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <Card pad={0}>
         {items.length === 0 ? (
           <div style={{ padding: "34px 18px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>

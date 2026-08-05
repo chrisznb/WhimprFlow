@@ -10,6 +10,7 @@ export type BarState =
   | "locked"
   | "transcribing"
   | "done"
+  | "clipboard"
   | "cancelled"
   | "error";
 
@@ -228,6 +229,7 @@ export function FlowBar() {
   const isIdle = state === "idle";
   const processing = state === "transcribing";
   const done = state === "done";
+  const clipboard = state === "clipboard";
 
   // Idle + hover: the nub morphs into a round mic button that starts a
   // hands-free dictation on click (same as tapping Fn).
@@ -243,7 +245,9 @@ export function FlowBar() {
       ? { w: 175, h: 30 }
       : processing
         ? { w: vertical ? 26 : 140, h: 26 }
-        : { w: vertical ? 26 : 108, h: 24 };
+        : clipboard
+          ? { w: vertical ? 26 : 210, h: 26 }
+          : { w: vertical ? 26 : 108, h: 24 };
   // Vertical pill (snapped to a side edge): swap the axes.
   const dims = vertical && !micMode ? { w: base.h, h: base.w } : base;
 
@@ -332,6 +336,11 @@ export function FlowBar() {
           <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 7, color: palette.pillTextMuted }}>
             <PulseDots />
             {!vertical && "Cleaning up"}
+          </span>
+        ) : clipboard ? (
+          <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: palette.pillText }}>
+            <FontAwesomeIcon icon={faStop} style={{ display: "none" }} />
+            {vertical ? "!" : "Not pasted. Copied to clipboard"}
           </span>
         ) : done ? (
           <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
