@@ -415,6 +415,18 @@ fn register_transform_shortcuts(app: &tauri::AppHandle) {
         tauri_plugin_global_shortcut::ShortcutState::Pressed => hotkey::ask_mode_down(),
         tauri_plugin_global_shortcut::ShortcutState::Released => hotkey::ask_mode_up(),
     });
+    // User-chosen extra dictation key (Fn always stays active).
+    let custom = hotkey::current_settings().dictation_hotkey.trim().to_string();
+    if !custom.is_empty() {
+        if let Err(e) = gs.on_shortcut(custom.as_str(), |_app, _sc, event| match event.state {
+            tauri_plugin_global_shortcut::ShortcutState::Pressed => hotkey::dictation_key_down(),
+            tauri_plugin_global_shortcut::ShortcutState::Released => hotkey::dictation_key_up(),
+        }) {
+            eprintln!("[whimpr] dictation hotkey '{custom}' failed to register: {e}");
+        } else {
+            eprintln!("[whimpr] dictation hotkey '{custom}' active");
+        }
+    }
     for t in hotkey::transforms_list() {
         let accel = t.shortcut.clone();
         let accel_cb = accel.clone();
@@ -447,8 +459,10 @@ fn cancel_dictation() {
 }
 
 #[tauri::command]
-fn set_settings(settings: whimpr_core::Settings) {
+fn set_settings(app: tauri::AppHandle, settings: whimpr_core::Settings) {
     hotkey::update_settings(settings);
+    // Hotkeys may have changed.
+    register_transform_shortcuts(&app);
 }
 
 /// Aggregated dictation stats for the Hub dashboard. `tz_offset_minutes` is the

@@ -101,6 +101,10 @@ pub struct Settings {
     /// Model for cloud transcription.
     #[serde(default = "default_asr_model")]
     pub asr_model: String,
+    /// Extra dictation hotkey (accelerator syntax, e.g. "F13" or "Ctrl+Space").
+    /// Fn always works; this adds a second key. Empty = none.
+    #[serde(default)]
+    pub dictation_hotkey: String,
     pub openai_model: String,
     /// API root for the "OpenAI" cleanup mode, e.g. `https://openrouter.ai/api/v1`
     /// to route through OpenRouter instead of OpenAI directly (same wire format).
@@ -146,6 +150,7 @@ impl Default for Settings {
             asr_mode: AsrMode::default(),
             asr_base_url: default_asr_base_url(),
             asr_model: default_asr_model(),
+            dictation_hotkey: String::new(),
         }
     }
 }

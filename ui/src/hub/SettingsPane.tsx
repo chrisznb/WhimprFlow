@@ -148,6 +148,31 @@ export function SettingsPane({
       <PageTitle serif>Settings</PageTitle>
 
       <Card style={{ marginBottom: 16 }}>
+        <SectionTitle sub="Fn always works: hold to talk, tap to toggle. Add a second key here if you like (accelerator syntax, e.g. F13 or Ctrl+Space).">
+          Dictation hotkey
+        </SectionTitle>
+        <input
+          type="text"
+          value={settings.dictation_hotkey}
+          placeholder="e.g. F13 or Ctrl+Space (empty = Fn only)"
+          onChange={(e) => onChange({ ...settings, dictation_hotkey: e.target.value })}
+          style={{
+            width: "100%",
+            maxWidth: 320,
+            background: theme.cardBgSubtle,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 10,
+            padding: "9px 12px",
+            color: theme.textBody,
+            fontFamily: font.mono,
+            fontSize: 13,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
         <SectionTitle sub="Where your speech is turned into text.">Transcription</SectionTitle>
         <Segmented
           options={[

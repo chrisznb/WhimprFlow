@@ -29,6 +29,7 @@ export interface Settings {
   asr_mode: AsrMode;
   asr_base_url: string;
   asr_model: string;
+  dictation_hotkey: string;
 }
 
 export interface Status {
@@ -78,6 +79,7 @@ export const DEFAULT_SETTINGS: Settings = {
   asr_mode: "local",
   asr_base_url: "https://api.mistral.ai/v1",
   asr_model: "voxtral-mini-latest",
+  dictation_hotkey: "",
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

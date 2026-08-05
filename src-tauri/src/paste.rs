@@ -100,6 +100,45 @@ mod imp {
 
     const KEYCODE_C: u16 = 8;
 
+    /// Paste with landing verification: put `text` in the clipboard, Cmd+V,
+    /// then re-read the focused element via AX. If the pasted tail shows up,
+    /// the old clipboard is restored and true is returned. If not (paste went
+    /// nowhere, or the app hides its text from AX), the dictation STAYS in the
+    /// clipboard and false is returned — the text is never lost.
+    pub fn paste_text_verified(text: &str) -> anyhow::Result<bool> {
+        use arboard::Clipboard;
+        if !is_trusted() {
+            return Err(anyhow::anyhow!("no Accessibility permission — cannot paste"));
+        }
+        let mut cb = Clipboard::new()?;
+        let saved = cb.get_text().ok();
+        cb.set_text(text.to_string())?;
+        std::thread::sleep(Duration::from_millis(60));
+        post_cmd_v();
+        std::thread::sleep(Duration::from_millis(320));
+        let tail: String = text
+            .trim()
+            .chars()
+            .rev()
+            .take(24)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let landed = !tail.is_empty()
+            && crate::appctx::focused_text_context(800)
+                .map(|ctx| ctx.contains(tail.as_str()))
+                .unwrap_or(false);
+        if landed {
+            if let Some(prev) = saved {
+                let _ = cb.set_text(prev);
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Copy the current selection (Cmd+C) and return it. Restores the previous
     /// clipboard if nothing was selected. Returns None when there is no selection.
     pub fn copy_selection() -> anyhow::Result<Option<String>> {
@@ -148,12 +187,17 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::{
     copy_selection, input_monitoring_granted, is_trusted, microphone_granted, paste_text,
-    prompt_accessibility, request_input_monitoring,
+    paste_text_verified, prompt_accessibility, request_input_monitoring,
 };
 
 #[cfg(not(target_os = "macos"))]
 pub fn copy_selection() -> anyhow::Result<Option<String>> {
     Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn paste_text_verified(text: &str) -> anyhow::Result<bool> {
+    paste_text(text).map(|_| true)
 }
 
 #[cfg(not(target_os = "macos"))]

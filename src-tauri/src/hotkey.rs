@@ -975,19 +975,27 @@ return acted"#,
                                 }
                             }
                             if !text.is_empty() {
-                                if !crate::appctx::has_text_focus() {
-                                    eprintln!("[whimpr] no text field focused — clipboard only");
+                                // Paste with landing verification: if the text
+                                // can't be confirmed in the focused field, it
+                                // stays in the clipboard and the pill says so.
+                                let pasted = if crate::appctx::has_text_focus() {
+                                    crate::paste::paste_text_verified(&text).unwrap_or(false)
+                                } else {
                                     if let Ok(mut cb) = arboard::Clipboard::new() {
                                         let _ = cb.set_text(text.clone());
                                     }
+                                    false
+                                };
+                                if !pasted {
+                                    eprintln!(
+                                        "[whimpr] paste not confirmed — dictation kept in clipboard"
+                                    );
                                     emit_bar(&app2, "clipboard");
                                     let app3 = app2.clone();
                                     std::thread::spawn(move || {
                                         std::thread::sleep(Duration::from_millis(3200));
                                         emit_bar(&app3, "idle");
                                     });
-                                } else if let Err(e) = crate::paste::paste_text(&text) {
-                                    eprintln!("[whimpr] paste failed: {e}");
                                 }
                                 *LAST_DICTATION
                                     .get_or_init(|| Mutex::new(None))
@@ -2057,6 +2065,25 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         });
     }
 
+    /// Custom dictation hotkey: behaves exactly like the Fn key (hold = PTT,
+    /// tap = toggle) by feeding the same state-machine triggers.
+    pub fn dictation_key_down() {
+        let target = crate::appctx::frontmost_bundle_id();
+        *TARGET_APP.get_or_init(|| Mutex::new(None)).lock().unwrap() = target;
+        snapshot_window_ctx();
+        handle_input(Input::Trigger(TriggerToken::Down {
+            binding: BindingId::PushToTalk,
+            at_ms: now_ms(),
+        }));
+    }
+
+    pub fn dictation_key_up() {
+        handle_input(Input::Trigger(TriggerToken::Up {
+            binding: BindingId::PushToTalk,
+            at_ms: now_ms(),
+        }));
+    }
+
     /// Start a hands-free (locked) dictation, as if the user tapped Fn — used by
     /// the pill's on-hover mic button. Snapshots the paste target first, exactly
     /// like the Fn-down path.
@@ -2244,9 +2271,13 @@ pub use imp::{
 };
 #[cfg(target_os = "macos")]
 pub use imp::{
-    ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, import_contacts,
-    snippet_suggestions,
+    ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, dictation_key_down,
+    dictation_key_up, import_contacts, snippet_suggestions,
 };
+#[cfg(not(target_os = "macos"))]
+pub fn dictation_key_down() {}
+#[cfg(not(target_os = "macos"))]
+pub fn dictation_key_up() {}
 #[cfg(not(target_os = "macos"))]
 pub fn command_mode_down() {}
 #[cfg(not(target_os = "macos"))]
