@@ -22,6 +22,18 @@ pub enum CleanupMode {
     Anthropic,
 }
 
+/// Where speech is transcribed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AsrMode {
+    /// On-device whisper.cpp (default, offline).
+    #[default]
+    Local,
+    /// OpenAI-compatible /audio/transcriptions endpoint (Mistral Voxtral,
+    /// Groq Whisper, OpenAI). Uses the OpenAI API key from the keychain.
+    Cloud,
+}
+
 /// Writing style per target-app category (Wispr-style "Style" feature).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -80,6 +92,15 @@ pub struct Settings {
     /// Per-app-category writing style.
     #[serde(default)]
     pub style: StylePrefs,
+    /// Where transcription runs.
+    #[serde(default)]
+    pub asr_mode: AsrMode,
+    /// Base URL for cloud transcription (OpenAI-compatible).
+    #[serde(default = "default_asr_base_url")]
+    pub asr_base_url: String,
+    /// Model for cloud transcription.
+    #[serde(default = "default_asr_model")]
+    pub asr_model: String,
     pub openai_model: String,
     /// API root for the "OpenAI" cleanup mode, e.g. `https://openrouter.ai/api/v1`
     /// to route through OpenRouter instead of OpenAI directly (same wire format).
@@ -102,6 +123,14 @@ fn default_true() -> bool {
     true
 }
 
+fn default_asr_base_url() -> String {
+    "https://api.mistral.ai/v1".to_string()
+}
+
+fn default_asr_model() -> String {
+    "voxtral-mini-latest".to_string()
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -114,6 +143,9 @@ impl Default for Settings {
             sound_on_start: true,
             context_awareness: true,
             mute_music_while_dictating: true,
+            asr_mode: AsrMode::default(),
+            asr_base_url: default_asr_base_url(),
+            asr_model: default_asr_model(),
         }
     }
 }

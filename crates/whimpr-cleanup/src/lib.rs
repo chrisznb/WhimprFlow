@@ -168,3 +168,36 @@ impl CleanupProvider for AnthropicProvider {
         Ok(text)
     }
 }
+
+/// OpenAI-compatible cloud transcription (`POST {base}/audio/transcriptions`):
+/// works with Mistral Voxtral, Groq Whisper, and OpenAI. Sends WAV bytes,
+/// returns the transcript text.
+pub fn transcribe_cloud(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    wav: Vec<u8>,
+) -> anyhow::Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+    let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
+    let part = reqwest::blocking::multipart::Part::bytes(wav)
+        .file_name("audio.wav")
+        .mime_str("audio/wav")?;
+    let form = reqwest::blocking::multipart::Form::new()
+        .text("model", model.to_string())
+        .part("file", part);
+    let resp = client.post(&url).bearer_auth(api_key).multipart(form).send()?;
+    let status = resp.status();
+    let body: serde_json::Value = resp.json()?;
+    if !status.is_success() {
+        anyhow::bail!("cloud ASR {status}: {body}");
+    }
+    Ok(body
+        .get("text")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string())
+}

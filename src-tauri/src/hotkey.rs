@@ -683,6 +683,28 @@ return acted"#,
         )
     }
 
+    /// Minimal WAV container around 16 kHz mono PCM for cloud transcription.
+    fn wav_from_pcm16k(pcm: &[f32]) -> Vec<u8> {
+        let data_len = pcm.len() * 2;
+        let mut w = Vec::with_capacity(44 + data_len);
+        w.extend_from_slice(b"RIFF");
+        w.extend_from_slice(&(36 + data_len as u32).to_le_bytes());
+        w.extend_from_slice(b"WAVEfmt ");
+        w.extend_from_slice(&16u32.to_le_bytes());
+        w.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        w.extend_from_slice(&1u16.to_le_bytes()); // mono
+        w.extend_from_slice(&16_000u32.to_le_bytes());
+        w.extend_from_slice(&32_000u32.to_le_bytes()); // byte rate
+        w.extend_from_slice(&2u16.to_le_bytes()); // block align
+        w.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        w.extend_from_slice(b"data");
+        w.extend_from_slice(&(data_len as u32).to_le_bytes());
+        for &sample in pcm {
+            w.extend_from_slice(&((sample.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+        }
+        w
+    }
+
     /// Fire-and-forget system sound (subtle Wispr-style audio feedback).
     fn play_sound(name: &'static str) {
         if !current_settings().sound_on_start {
@@ -821,15 +843,58 @@ return acted"#,
                              Security → Microphone), then fully quit + reopen it and rerun."
                         );
                     }
-                    let Some(asr) = ASR.get().cloned() else {
-                        eprintln!("[whimpr] ASR not ready (model still loading or missing)");
-                        finish();
-                        return;
-                    };
                     let pcm = whimpr_audio::resample_to_16k(&res.samples, res.sample_rate);
-                    match asr.transcribe(&pcm) {
+                    let asr_settings = current_settings();
+                    // Cloud ASR first when selected (Mistral Voxtral / Groq / OpenAI),
+                    // falling back to the local model on any failure.
+                    let cloud_text: Option<String> =
+                        if matches!(asr_settings.asr_mode, whimpr_core::AsrMode::Cloud) {
+                            match read_openai_key() {
+                                Some(key) => {
+                                    let t0 = Instant::now();
+                                    let wav = wav_from_pcm16k(&pcm);
+                                    match whimpr_cleanup::transcribe_cloud(
+                                        &asr_settings.asr_base_url,
+                                        &key,
+                                        &asr_settings.asr_model,
+                                        wav,
+                                    ) {
+                                        Ok(t) => {
+                                            eprintln!(
+                                                "[whimpr] cloud ASR ({}) in {:?}",
+                                                asr_settings.asr_model,
+                                                t0.elapsed()
+                                            );
+                                            Some(t)
+                                        }
+                                        Err(e) => {
+                                            eprintln!(
+                                                "[whimpr] cloud ASR failed ({e}) — local fallback"
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                                None => {
+                                    eprintln!("[whimpr] cloud ASR: no API key — local fallback");
+                                    None
+                                }
+                            }
+                        } else {
+                            None
+                        };
+                    let transcribed: anyhow::Result<String> = match cloud_text {
+                        Some(t) => Ok(t),
+                        None => match ASR.get().cloned() {
+                            Some(asr) => asr.transcribe(&pcm).map(|t| t.text),
+                            None => Err(anyhow::anyhow!(
+                                "ASR not ready (model still loading or missing)"
+                            )),
+                        },
+                    };
+                    match transcribed {
                         Ok(t) => {
-                            let mut raw = t.text;
+                            let mut raw = t;
                             eprintln!("[whimpr] TRANSCRIPT: \"{}\"", raw);
                             // Whisper hallucinates stock phrases on (near-)silence
                             // ("Vielen Dank.", subtitle credits, …). Only filter when

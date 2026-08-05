@@ -135,6 +135,68 @@ export function SettingsPane({
       <PageTitle serif>Settings</PageTitle>
 
       <Card style={{ marginBottom: 16 }}>
+        <SectionTitle sub="Where your speech is turned into text.">Transcription</SectionTitle>
+        <Segmented
+          options={[
+            { value: "local", label: "Local (Whisper)" },
+            { value: "cloud", label: "Cloud" },
+          ]}
+          value={settings.asr_mode}
+          onChange={(v) => onChange({ ...settings, asr_mode: v })}
+        />
+        <div style={{ color: theme.textMuted, fontSize: 12.5, marginTop: 10 }}>
+          {settings.asr_mode === "local"
+            ? "On-device whisper.cpp, fully offline."
+            : "OpenAI-compatible audio API (Mistral Voxtral, Groq Whisper, OpenAI). Uses the OpenAI API key below. Falls back to local if the request fails."}
+        </div>
+        {settings.asr_mode === "cloud" && (
+          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>Base URL</div>
+              <input
+                type="text"
+                value={settings.asr_base_url}
+                onChange={(e) => onChange({ ...settings, asr_base_url: e.target.value })}
+                style={{
+                  width: "100%",
+                  background: theme.cardBgSubtle,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 10,
+                  padding: "9px 12px",
+                  color: theme.textBody,
+                  fontFamily: font.mono,
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>Model</div>
+              <input
+                type="text"
+                value={settings.asr_model}
+                onChange={(e) => onChange({ ...settings, asr_model: e.target.value })}
+                placeholder="voxtral-mini-latest"
+                style={{
+                  width: "100%",
+                  background: theme.cardBgSubtle,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 10,
+                  padding: "9px 12px",
+                  color: theme.textBody,
+                  fontFamily: font.mono,
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
         <SectionTitle sub="Where your dictation is cleaned up before it's typed.">Cleanup Engine</SectionTitle>
         <Segmented
           options={MODES.map((m) => ({ value: m.value, label: m.label }))}

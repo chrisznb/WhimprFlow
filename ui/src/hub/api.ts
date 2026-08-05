@@ -4,6 +4,7 @@
 
 export type CleanupMode = "raw" | "local" | "open_ai" | "anthropic";
 export type CleanupLevel = "none" | "light" | "medium" | "high";
+export type AsrMode = "local" | "cloud";
 export type StyleLevel = "formal" | "casual" | "very_casual";
 
 export interface StylePrefs {
@@ -25,6 +26,9 @@ export interface Settings {
   context_awareness: boolean;
   mute_music_while_dictating: boolean;
   style: StylePrefs;
+  asr_mode: AsrMode;
+  asr_base_url: string;
+  asr_model: string;
 }
 
 export interface Status {
@@ -71,6 +75,9 @@ export const DEFAULT_SETTINGS: Settings = {
   context_awareness: true,
   mute_music_while_dictating: true,
   style: { personal: "casual", work: "formal", email: "formal", other: "casual" },
+  asr_mode: "local",
+  asr_base_url: "https://api.mistral.ai/v1",
+  asr_model: "voxtral-mini-latest",
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

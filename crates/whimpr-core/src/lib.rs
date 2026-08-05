@@ -21,7 +21,7 @@ pub mod types;
 pub use asr::{AsrEngine, AsrEngineId, Transcript};
 pub use cleanup::{CleanupContext, CleanupLevel, CleanupProvider, ProviderId, VocabEntry};
 pub use dictionary::{DictSource, DictionaryEntry, DictionaryStore};
-pub use settings::{CleanupMode, Settings, StyleLevel, StylePrefs};
+pub use settings::{AsrMode, CleanupMode, Settings, StyleLevel, StylePrefs};
 pub use snippets::{Snippet, SnippetStore};
 pub use stats::{HistoryItem, SessionRecord, StatsStore, StatsSummary};
 pub use state::{Action, BarState, DictationState, Input, PipelineEvent, StateMachine, TriggerToken};
