@@ -733,12 +733,14 @@ pub fn run() {
             let open = MenuItem::with_id(app, "open", "Open WhimprFlow", true, None::<&str>)?;
             let copy_last =
                 MenuItem::with_id(app, "copy_last", "Copy last dictation", true, None::<&str>)?;
+            let check_update =
+                MenuItem::with_id(app, "check_update", "Check for updates", true, None::<&str>)?;
             let demo_rec =
                 MenuItem::with_id(app, "demo_rec", "Demo: recording", true, None::<&str>)?;
             let demo_idle = MenuItem::with_id(app, "demo_idle", "Demo: idle", true, None::<&str>)?;
             let sep = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit WhimprFlow", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open, &copy_last, &sep, &quit])?;
+            let menu = Menu::with_items(app, &[&open, &copy_last, &check_update, &sep, &quit])?;
 
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
@@ -763,6 +765,10 @@ pub fn run() {
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
+                    }
+                    "check_update" => {
+                        let current = app.package_info().version.to_string();
+                        hotkey::check_and_install_update(current);
                     }
                     "copy_last" => {
                         if let Some(text) = hotkey::last_dictation() {

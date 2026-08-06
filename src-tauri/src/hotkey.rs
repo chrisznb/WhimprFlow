@@ -1774,6 +1774,97 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             .spawn();
     }
 
+    /// Download the newest release zip, swap /Applications/WhimprFlow.app, and
+    /// relaunch. The release is signed with the same identity, so macOS
+    /// permissions survive the swap.
+    pub fn self_update() -> Result<(), String> {
+        let v = whimpr_cleanup::http_get_json(
+            "https://api.github.com/repos/chrisznb/WhimprFlow/releases/latest",
+        )
+        .map_err(|e| e.to_string())?;
+        let url = v["assets"]
+            .as_array()
+            .and_then(|a| {
+                a.iter().find(|x| {
+                    x["name"].as_str().map(|n| n.ends_with(".zip")).unwrap_or(false)
+                })
+            })
+            .and_then(|x| x["browser_download_url"].as_str())
+            .ok_or("no zip asset in the latest release")?
+            .to_string();
+        let tag = v["tag_name"].as_str().unwrap_or("latest").to_string();
+        notify("WhimprFlow", &format!("Downloading update {tag}…"));
+
+        let tmp_zip = std::env::temp_dir().join("whimpr-update.zip");
+        let tmp_dir = std::env::temp_dir().join("whimpr-update");
+        let ok = std::process::Command::new("/usr/bin/curl")
+            .args(["-sL", "-o"])
+            .arg(&tmp_zip)
+            .arg(&url)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !ok.success() {
+            return Err("download failed".into());
+        }
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        std::fs::create_dir_all(&tmp_dir).map_err(|e| e.to_string())?;
+        let ok = std::process::Command::new("ditto")
+            .arg("-xk")
+            .arg(&tmp_zip)
+            .arg(&tmp_dir)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !ok.success() {
+            return Err("unzip failed".into());
+        }
+        let new_app = tmp_dir.join("WhimprFlow.app");
+        if !new_app.exists() {
+            return Err("archive did not contain WhimprFlow.app".into());
+        }
+        let _ = std::process::Command::new("xattr")
+            .args(["-dr", "com.apple.quarantine"])
+            .arg(&new_app)
+            .status();
+        let dest = std::path::Path::new("/Applications/WhimprFlow.app");
+        std::fs::remove_dir_all(dest).map_err(|e| format!("could not remove old app: {e}"))?;
+        let ok = std::process::Command::new("ditto")
+            .arg(&new_app)
+            .arg(dest)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !ok.success() {
+            return Err("install failed".into());
+        }
+        let _ = std::fs::remove_file(&tmp_zip);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        notify("WhimprFlow", "Update installed. Restarting…");
+        let _ = std::process::Command::new("open").arg(dest).spawn();
+        std::thread::sleep(Duration::from_millis(600));
+        std::process::exit(0);
+    }
+
+    /// Tray "Check for updates": compare, then install if newer.
+    pub fn check_and_install_update(current: String) {
+        std::thread::spawn(move || {
+            let latest = whimpr_cleanup::http_get_json(
+                "https://api.github.com/repos/chrisznb/WhimprFlow/releases/latest",
+            )
+            .ok()
+            .and_then(|v| v.get("tag_name").and_then(|t| t.as_str().map(String::from)))
+            .map(|t| t.trim_start_matches('v').to_string());
+            match latest {
+                Some(l) if !l.is_empty() && l != current => {
+                    if let Err(e) = self_update() {
+                        eprintln!("[whimpr] self-update failed: {e}");
+                        notify("WhimprFlow update failed", &e);
+                    }
+                }
+                Some(_) => notify("WhimprFlow", "You are up to date."),
+                None => notify("WhimprFlow", "Could not reach GitHub."),
+            }
+        });
+    }
+
     /// Once at startup: compare the newest GitHub release against this build.
     fn check_for_update(current: String) {
         std::thread::spawn(move || {
@@ -2401,9 +2492,9 @@ pub use imp::{
 };
 #[cfg(target_os = "macos")]
 pub use imp::{
-    ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, dictation_key_down,
-    dictation_key_up, file_transcripts, import_contacts, snippet_suggestions,
-    transcribe_audio_file,
+    ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
+    dictation_key_down, dictation_key_up, file_transcripts, import_contacts,
+    snippet_suggestions, transcribe_audio_file,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -2433,6 +2524,8 @@ pub fn transcribe_audio_file(_path: &str) -> Result<String, String> {
 pub fn file_transcripts() -> Vec<serde_json::Value> {
     Vec::new()
 }
+#[cfg(not(target_os = "macos"))]
+pub fn check_and_install_update(_current: String) {}
 #[cfg(target_os = "macos")]
 pub use imp::assistant_chat;
 #[cfg(not(target_os = "macos"))]

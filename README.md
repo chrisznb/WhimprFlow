@@ -23,7 +23,13 @@ This is a heavily extended fork of [Blueturboguy07/WhimprFlow](https://github.co
 
 Grab the latest `.zip` from [Releases](../../releases), unzip, and drag `WhimprFlow.app` into `/Applications`.
 
-The app is not notarized, so on first launch macOS will warn you: right-click the app, choose **Open**, then confirm. Grant Accessibility and Microphone when asked.
+The app is not notarized, so macOS will refuse to open the download and may even claim it is "damaged" (it is not). Clear the quarantine flag once in Terminal, then open normally:
+
+```bash
+xattr -cr /Applications/WhimprFlow.app
+```
+
+Grant Accessibility and Microphone when asked. Updates install themselves from the tray menu ("Check for updates").
 
 ### Option 2: Build from source
 
