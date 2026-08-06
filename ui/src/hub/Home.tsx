@@ -344,7 +344,7 @@ export function Home() {
         </p>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 22, alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flexWrap: "wrap-reverse", gap: 22, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 440px", minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
           <Banner />
           <HistorySection history={history} />

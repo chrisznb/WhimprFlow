@@ -1218,6 +1218,37 @@ return acted"#,
         None
     }
 
+    fn file_transcripts_path() -> PathBuf {
+        support_dir().join("file-transcripts.json")
+    }
+
+    fn save_file_transcript(filename: &str, text: &str) {
+        let mut list: Vec<serde_json::Value> = std::fs::read_to_string(file_transcripts_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        list.insert(
+            0,
+            serde_json::json!({ "filename": filename, "text": text, "ts_unix": ts }),
+        );
+        list.truncate(50);
+        let _ = std::fs::write(
+            file_transcripts_path(),
+            serde_json::to_string_pretty(&list).unwrap_or_default(),
+        );
+    }
+
+    pub fn file_transcripts() -> Vec<serde_json::Value> {
+        std::fs::read_to_string(file_transcripts_path())
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
     /// Transcribe an audio file (m4a/mp3/wav/aiff/…): convert with the built-in
     /// afconvert, then run the configured engine (cloud first, local fallback).
     pub fn transcribe_audio_file(path: &str) -> Result<String, String> {
@@ -1263,6 +1294,10 @@ return acted"#,
                             t0.elapsed(),
                             t.len()
                         );
+                        save_file_transcript(
+                            src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
+                            &t,
+                        );
                         return Ok(t);
                     }
                     Ok(_) => eprintln!("[whimpr] cloud file ASR empty — trying local"),
@@ -1281,6 +1316,10 @@ return acted"#,
             "[whimpr] file transcribed locally in {:?} ({} chars)",
             t0.elapsed(),
             t.text.len()
+        );
+        save_file_transcript(
+            src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
+            &t.text,
         );
         Ok(t.text)
     }
@@ -2363,7 +2402,8 @@ pub use imp::{
 #[cfg(target_os = "macos")]
 pub use imp::{
     ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, dictation_key_down,
-    dictation_key_up, import_contacts, snippet_suggestions, transcribe_audio_file,
+    dictation_key_up, file_transcripts, import_contacts, snippet_suggestions,
+    transcribe_audio_file,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -2388,6 +2428,10 @@ pub fn snippet_suggestions() -> Vec<serde_json::Value> {
 #[cfg(not(target_os = "macos"))]
 pub fn transcribe_audio_file(_path: &str) -> Result<String, String> {
     Err("macOS only".to_string())
+}
+#[cfg(not(target_os = "macos"))]
+pub fn file_transcripts() -> Vec<serde_json::Value> {
+    Vec::new()
 }
 #[cfg(target_os = "macos")]
 pub use imp::assistant_chat;

@@ -367,3 +367,17 @@ export async function chooseAudioFile(): Promise<string | null> {
     return null;
   }
 }
+
+export interface FileTranscript {
+  filename: string;
+  text: string;
+  ts_unix: number;
+}
+
+export async function getFileTranscripts(): Promise<FileTranscript[]> {
+  try {
+    return await invoke<FileTranscript[]>("get_file_transcripts");
+  } catch {
+    return [];
+  }
+}

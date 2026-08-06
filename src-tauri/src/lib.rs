@@ -369,6 +369,11 @@ fn choose_audio_file_blocking() -> Option<String> {
 }
 
 #[tauri::command]
+fn get_file_transcripts() -> Vec<serde_json::Value> {
+    hotkey::file_transcripts()
+}
+
+#[tauri::command]
 async fn import_contacts() -> Result<u32, String> {
     tauri::async_runtime::spawn_blocking(hotkey::import_contacts)
         .await
@@ -671,6 +676,7 @@ pub fn run() {
             get_snippet_suggestions,
             transcribe_file,
             choose_audio_file,
+            get_file_transcripts,
             get_snippets,
             add_snippet,
             remove_snippet,
