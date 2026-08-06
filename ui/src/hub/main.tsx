@@ -54,6 +54,15 @@ style.textContent = `
     animation: wf-shimmer 1.3s linear infinite;
   }
 
+  .wf-home-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 22px; align-items: start; }
+  @media (max-width: 1020px) {
+    .wf-home-grid { grid-template-columns: minmax(0, 1fr); }
+    .wf-home-side { order: -1; position: static !important; }
+  }
+  @media (max-width: 940px) {
+    .wf-banner-eq { display: none !important; }
+  }
+
   @keyframes wf-eq {
     0%, 100% { transform: scaleY(0.35); }
     50% { transform: scaleY(1); }

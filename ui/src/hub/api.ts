@@ -30,6 +30,8 @@ export interface Settings {
   asr_base_url: string;
   asr_model: string;
   dictation_hotkey: string;
+  // Your own typing speed (WPM); the "time saved vs typing" stat compares against it.
+  typing_wpm: number;
 }
 
 export interface Status {
@@ -80,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   asr_base_url: "https://api.mistral.ai/v1",
   asr_model: "voxtral-mini-latest",
   dictation_hotkey: "",
+  typing_wpm: 45,
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

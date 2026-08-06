@@ -253,35 +253,59 @@ return acted"#,
         )
     }
 
+    /// Append one line to music-debug.log so pause/resume behavior is
+    /// diagnosable for an app launched via Finder (stderr goes nowhere).
+    fn music_log(line: &str) {
+        use std::io::Write;
+        let msg = format!("{} {}\n", now_ms(), line);
+        eprint!("[whimpr] music: {msg}");
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(support_dir().join("music-debug.log"))
+        {
+            let _ = f.write_all(msg.as_bytes());
+        }
+    }
+
+    fn run_music_script(cmd: &str) -> (bool, String, String) {
+        let out = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(music_script(cmd))
+            .output();
+        match out {
+            Ok(o) => (
+                o.status.success(),
+                String::from_utf8_lossy(&o.stdout).trim().to_string(),
+                String::from_utf8_lossy(&o.stderr).trim().to_string(),
+            ),
+            Err(e) => (false, String::new(), format!("spawn failed: {e}")),
+        }
+    }
+
     fn pause_music_if_playing() {
         if !current_settings().mute_music_while_dictating {
             return;
         }
         std::thread::spawn(|| {
-            let out = std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(music_script("pause"))
-                .output();
-            if let Ok(o) = out {
-                let acted = String::from_utf8_lossy(&o.stdout);
-                if !acted.trim().is_empty() {
-                    eprintln!("[whimpr] music paused ({})", acted.trim());
-                    MUSIC_PAUSED.store(true, Ordering::SeqCst);
-                }
+            music_log("pause: start");
+            let (ok, acted, err) = run_music_script("pause");
+            music_log(&format!("pause: ok={ok} acted=\"{acted}\" err=\"{err}\""));
+            if ok && !acted.is_empty() {
+                MUSIC_PAUSED.store(true, Ordering::SeqCst);
             }
         });
     }
 
     fn resume_music_if_we_paused() {
         if !MUSIC_PAUSED.swap(false, Ordering::SeqCst) {
+            music_log("resume: skipped (flag not set)");
             return;
         }
         std::thread::spawn(|| {
-            let _ = std::process::Command::new("osascript")
-                .arg("-e")
-                .arg(music_script("play"))
-                .output();
-            eprintln!("[whimpr] music resumed");
+            music_log("resume: start");
+            let (ok, acted, err) = run_music_script("play");
+            music_log(&format!("resume: ok={ok} acted=\"{acted}\" err=\"{err}\""));
         });
     }
     static CAPTURE: OnceLock<Mutex<Option<whimpr_audio::CaptureHandle>>> = OnceLock::new();
@@ -439,9 +463,9 @@ return acted"#,
     pub fn stats_summary(tz_offset_minutes: i32) -> whimpr_core::StatsSummary {
         STATS
             .get()
-            .map(|m| m.lock().unwrap().summary(tz_offset_minutes, unix_now()))
+            .map(|m| m.lock().unwrap().summary(tz_offset_minutes, unix_now(), current_settings().typing_wpm))
             .unwrap_or_else(|| {
-                whimpr_core::StatsStore::default().summary(tz_offset_minutes, unix_now())
+                whimpr_core::StatsStore::default().summary(tz_offset_minutes, unix_now(), 45)
             })
     }
 
@@ -760,13 +784,22 @@ return acted"#,
 
     fn emit_bar(app: &AppHandle, state: &'static str) {
         eprintln!("[whimpr] pill -> {state}");
+        if current_settings().mute_music_while_dictating {
+            music_log(&format!("pill -> {state}"));
+        }
         match state {
             "recording" | "locked" => {
                 play_sound("Tink");
                 pause_music_if_playing();
             }
-            "done" => play_sound("Pop"),
-            "idle" | "cancelled" | "error" => resume_music_if_we_paused(),
+            // Resume as soon as the mic is off — no need to sit in silence
+            // through transcription/cleanup.
+            "transcribing" => resume_music_if_we_paused(),
+            "done" => {
+                play_sound("Pop");
+                resume_music_if_we_paused();
+            }
+            "idle" | "cancelled" | "error" | "clipboard" => resume_music_if_we_paused(),
             _ => {}
         }
         let vertical = crate::overlay_vertical();
@@ -2590,7 +2623,7 @@ mod other {
     pub fn update_settings(_new: whimpr_core::Settings) {}
     pub fn rebuild_providers() {}
     pub fn stats_summary(tz_offset_minutes: i32) -> whimpr_core::StatsSummary {
-        whimpr_core::StatsStore::default().summary(tz_offset_minutes, 0)
+        whimpr_core::StatsStore::default().summary(tz_offset_minutes, 0, 45)
     }
     pub fn history(_limit: usize) -> Vec<whimpr_core::HistoryItem> {
         Vec::new()

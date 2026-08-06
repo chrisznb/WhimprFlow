@@ -365,8 +365,8 @@ pub fn rebuild_providers() {
 pub fn stats_summary(tz_offset_minutes: i32) -> StatsSummary {
     STATS
         .get()
-        .map(|m| m.lock().unwrap().summary(tz_offset_minutes, unix_now()))
-        .unwrap_or_else(|| whimpr_core::StatsStore::default().summary(tz_offset_minutes, unix_now()))
+        .map(|m| m.lock().unwrap().summary(tz_offset_minutes, unix_now(), crate::hotkey::current_settings().typing_wpm))
+        .unwrap_or_else(|| whimpr_core::StatsStore::default().summary(tz_offset_minutes, unix_now(), 45))
 }
 
 pub fn history(limit: usize) -> Vec<whimpr_core::HistoryItem> {

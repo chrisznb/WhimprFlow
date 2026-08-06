@@ -140,8 +140,9 @@ impl StatsStore {
 
     /// Aggregate everything the dashboard shows. `now_unix` and `tz_offset_minutes`
     /// come from the caller so day math matches the user's local clock (and so the
-    /// aggregation stays pure/testable).
-    pub fn summary(&self, tz_offset_minutes: i32, now_unix: u64) -> StatsSummary {
+    /// aggregation stays pure/testable). `typing_wpm` is the user's own typing
+    /// speed for the "time saved" comparison; 0 falls back to the baseline.
+    pub fn summary(&self, tz_offset_minutes: i32, now_unix: u64, typing_wpm: u32) -> StatsSummary {
         let total_words: u64 = self.sessions.iter().map(|s| s.words as u64).sum();
         let total_sessions = self.sessions.len() as u64;
         let total_speaking_secs: f64 =
@@ -194,7 +195,8 @@ impl StatsStore {
 
         // Time saved: how long these words would take to type at the baseline,
         // minus the time actually spent speaking. Never negative.
-        let typed_secs = total_words as f64 / TYPING_WPM_BASELINE * 60.0;
+        let typing_wpm = if typing_wpm == 0 { TYPING_WPM_BASELINE } else { typing_wpm as f64 };
+        let typed_secs = total_words as f64 / typing_wpm * 60.0;
         let time_saved_secs = (typed_secs - total_speaking_secs).max(0.0);
 
         StatsSummary {
@@ -233,7 +235,7 @@ mod tests {
         s.record(60, 60_000, 300, NOW, String::new(), None);
         // 30 words in 15s -> 120 wpm.
         s.record(30, 15_000, 150, NOW, String::new(), None);
-        let sum = s.summary(0, NOW);
+        let sum = s.summary(0, NOW, 45);
         assert_eq!(sum.total_words, 90);
         assert_eq!(sum.total_sessions, 2);
         // 90 words / 75s = 72 wpm.
@@ -251,7 +253,7 @@ mod tests {
         s.record(10, 5_000, 50, NOW - 3 * DAY, String::new(), None);
         // Gap at 4 days ago, then one more.
         s.record(10, 5_000, 50, NOW - 5 * DAY, String::new(), None);
-        let sum = s.summary(0, NOW);
+        let sum = s.summary(0, NOW, 45);
         // Today empty -> start at yesterday; 3 consecutive days back, then a gap.
         assert_eq!(sum.day_streak, 3);
         assert_eq!(sum.words_today, 0);
@@ -262,7 +264,7 @@ mod tests {
         let mut s = StatsStore::default();
         s.record(5, 3_000, 25, NOW, String::new(), None); // today
         s.record(7, 3_000, 35, NOW - 2 * DAY, String::new(), None); // 2 days ago
-        let sum = s.summary(0, NOW);
+        let sum = s.summary(0, NOW, 45);
         assert_eq!(sum.last7_words[6], 5); // today
         assert_eq!(sum.last7_words[4], 7); // two days ago
         assert_eq!(sum.last7_words[5], 0);

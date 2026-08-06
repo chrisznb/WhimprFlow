@@ -121,6 +121,14 @@ pub struct Settings {
     /// Pause Spotify/Music while recording; resume afterwards.
     #[serde(default = "default_true")]
     pub mute_music_while_dictating: bool,
+    /// The user's own typing speed (words/min), used for the "time saved vs
+    /// typing" stat. 45 matches Wispr Flow's cited typed baseline.
+    #[serde(default = "default_typing_wpm")]
+    pub typing_wpm: u32,
+}
+
+fn default_typing_wpm() -> u32 {
+    45
 }
 
 fn default_true() -> bool {
@@ -151,6 +159,7 @@ impl Default for Settings {
             asr_base_url: default_asr_base_url(),
             asr_model: default_asr_model(),
             dictation_hotkey: String::new(),
+            typing_wpm: default_typing_wpm(),
         }
     }
 }

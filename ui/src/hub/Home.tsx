@@ -76,6 +76,7 @@ function Banner() {
         }}
       />
       <div
+        className="wf-banner-eq"
         style={{
           position: "absolute",
           right: 30,
@@ -159,7 +160,7 @@ function HistoryRow({ item }: { item: HistoryItem }) {
   const d = new Date(item.ts_unix * 1000);
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const words = countWords(item.text);
+  const words = item.words || countWords(item.text);
   const clampable = words > 40 || item.text.length > 220;
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -296,6 +297,7 @@ function HistorySection({ history }: { history: HistoryItem[] | null }) {
       <div
         style={{
           display: "flex",
+          flexWrap: "wrap",
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
@@ -411,30 +413,25 @@ function BigStat({ value, label, accent }: { value: string; label: string; accen
   );
 }
 
-// Words per day for the last 7 calendar days, oldest first.
-function lastSevenDays(history: HistoryItem[]): { letter: string; words: number; isToday: boolean }[] {
-  const byDay = new Map<string, number>();
-  for (const it of history) {
-    const k = dayKey(new Date(it.ts_unix * 1000));
-    byDay.set(k, (byDay.get(k) ?? 0) + countWords(it.text));
-  }
+// The last 7 calendar days from the stats backend, oldest first (index 6 = today).
+function lastSevenDays(last7: number[]): { letter: string; words: number; isToday: boolean }[] {
   const letters = ["S", "M", "T", "W", "T", "F", "S"];
-  const out: { letter: string; words: number; isToday: boolean }[] = [];
   const now = new Date();
+  const out: { letter: string; words: number; isToday: boolean }[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-    out.push({ letter: letters[d.getDay()], words: byDay.get(dayKey(d)) ?? 0, isToday: i === 0 });
+    out.push({ letter: letters[d.getDay()], words: last7[6 - i] ?? 0, isToday: i === 0 });
   }
   return out;
 }
 
-function WeekChart({ history }: { history: HistoryItem[] | null }) {
-  const days = useMemo(() => lastSevenDays(history ?? []), [history]);
+function WeekChart({ last7 }: { last7: number[] }) {
+  const days = useMemo(() => lastSevenDays(last7), [last7]);
   const total = days.reduce((s, d) => s + d.words, 0);
   const max = Math.max(...days.map((d) => d.words), 1);
   const CHART_H = 42;
   return (
-    <div style={{ padding: "14px 0 2px", borderTop: `1px solid ${theme.border}` }}>
+    <div style={{ padding: "6px 0 0" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
         <div
           style={{
@@ -493,7 +490,7 @@ function WeekChart({ history }: { history: HistoryItem[] | null }) {
   );
 }
 
-function StatsCard({ stats, history }: { stats: StatsSummary; history: HistoryItem[] | null }) {
+function StatsCard({ stats }: { stats: StatsSummary }) {
   const unlocked = stats.total_words >= UNLOCK_WORDS;
   return (
     <Card>
@@ -515,27 +512,29 @@ function StatsCard({ stats, history }: { stats: StatsSummary; history: HistoryIt
         )}
       </div>
 
-      <div style={{ textAlign: "center", margin: "16px 0 6px" }}>
-        <div style={{ fontFamily: font.serif, fontSize: 42, fontWeight: 600, color: theme.textStrong, lineHeight: 1 }}>
-          {fmtCompact(stats.total_words)}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 32px", alignItems: "center", marginTop: 8 }}>
+        <div style={{ flex: "1 1 170px", textAlign: "center", padding: "8px 0" }}>
+          <div style={{ fontFamily: font.serif, fontSize: 42, fontWeight: 600, color: theme.textStrong, lineHeight: 1 }}>
+            {fmtCompact(stats.total_words)}
+          </div>
+          <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 6, textTransform: "uppercase", letterSpacing: 0.6 }}>
+            total words
+          </div>
+          <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 5 }}>
+            {wordsReference(stats.total_words)}
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 6, textTransform: "uppercase", letterSpacing: 0.6 }}>
-          total words
+        <div style={{ flex: "1 1 230px", minWidth: 0 }}>
+          <WeekChart last7={stats.last7_words} />
         </div>
       </div>
-
-      <div style={{ fontSize: 12, color: theme.textMuted, textAlign: "center", marginBottom: 16 }}>
-        {wordsReference(stats.total_words)}
-      </div>
-
-      <WeekChart history={history} />
 
       <div
         style={{
           display: "flex",
           gap: 8,
           padding: "16px 0 0",
-          marginTop: 14,
+          marginTop: 16,
           borderTop: `1px solid ${theme.border}`,
         }}
       >
@@ -598,13 +597,13 @@ export function Home() {
         </p>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap-reverse", gap: 22, alignItems: "flex-start" }}>
-        <div style={{ flex: "1 1 440px", minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
+      <div className="wf-home-grid">
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
           <Banner />
           <HistorySection history={history} />
         </div>
-        <div style={{ flex: "0 0 300px", width: 300, maxWidth: "100%" }}>
-          <StatsCard stats={stats} history={history} />
+        <div className="wf-home-side" style={{ position: "sticky", top: 24 }}>
+          <StatsCard stats={stats} />
         </div>
       </div>
     </div>

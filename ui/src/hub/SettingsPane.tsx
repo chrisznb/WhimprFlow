@@ -343,6 +343,44 @@ export function SettingsPane({
 
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Your typing speed</div>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2 }}>
+              Words per minute when you type. Used for the "time saved" stat.
+            </div>
+          </div>
+          <input
+            type="number"
+            min={10}
+            max={200}
+            value={settings.typing_wpm || ""}
+            onChange={(e) => {
+              const n = Math.round(Number(e.target.value));
+              onChange({ ...settings, typing_wpm: Number.isFinite(n) && n > 0 ? Math.min(200, n) : 0 });
+            }}
+            onBlur={() => {
+              if (!settings.typing_wpm || settings.typing_wpm < 10) {
+                onChange({ ...settings, typing_wpm: 45 });
+              }
+            }}
+            style={{
+              width: 74,
+              fontFamily: font.ui,
+              fontSize: 14,
+              color: theme.textBody,
+              background: theme.cardBgSubtle,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 9,
+              padding: "8px 10px",
+              outline: "none",
+              textAlign: "center",
+            }}
+          />
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
             Play a sound when recording starts
           </div>
