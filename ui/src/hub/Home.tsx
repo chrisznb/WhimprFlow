@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { font, palette } from "../tokens/values";
 import { theme } from "./theme";
 import { Card, SkeletonRows, useStats } from "./ui";
@@ -8,7 +8,48 @@ import { dayKey, dayLabel, fmtCompact, fmtDuration, fmtNum, fmtTimeOfDay, pretty
 
 const UNLOCK_WORDS = 500;
 
+function countWords(t: string): number {
+  const s = t.trim();
+  return s ? s.split(/\s+/).length : 0;
+}
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Up late";
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+// Small keyboard-key chip, light and dark variants.
+function KeyCap({ label, dark }: { label: string; dark?: boolean }) {
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        fontFamily: font.ui,
+        fontSize: 11,
+        fontWeight: 600,
+        lineHeight: 1,
+        padding: "4px 8px 5px",
+        borderRadius: 6,
+        border: `1px solid ${dark ? "rgba(255,255,255,0.30)" : theme.borderStrong}`,
+        background: dark ? "rgba(255,255,255,0.10)" : theme.cardBgSubtle,
+        color: dark ? palette.slate050 : theme.textBody,
+        boxShadow: dark ? "none" : "0 1px 0 rgba(26,26,26,0.06)",
+        verticalAlign: "middle",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 // ── Banner ───────────────────────────────────────────────────────────────────
+
+// Frozen waveform decoration; fixed heights so it stays calm.
+const EQ_HEIGHTS = [10, 22, 14, 30, 18, 38, 26, 44, 20, 34, 14, 26, 10];
+
 function Banner() {
   return (
     <div
@@ -21,7 +62,6 @@ function Banner() {
         boxShadow: theme.shadow,
       }}
     >
-      {/* soft accent glow */}
       <div
         style={{
           position: "absolute",
@@ -35,7 +75,34 @@ function Banner() {
           pointerEvents: "none",
         }}
       />
-      <div style={{ position: "relative", maxWidth: 460 }}>
+      <div
+        style={{
+          position: "absolute",
+          right: 30,
+          top: "50%",
+          transform: "translateY(-50%)",
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+          pointerEvents: "none",
+        }}
+      >
+        {EQ_HEIGHTS.map((h, i) => (
+          <span
+            key={i}
+            style={{
+              width: 4,
+              height: h,
+              borderRadius: 999,
+              background:
+                i === Math.floor(EQ_HEIGHTS.length / 2)
+                  ? "rgba(255,255,255,0.55)"
+                  : "rgba(255,255,255,0.22)",
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ position: "relative", maxWidth: 430 }}>
         <div
           style={{
             fontFamily: font.serif,
@@ -49,8 +116,12 @@ function Banner() {
           Cleanup works anywhere you write.
         </div>
         <p style={{ color: palette.slate300, fontSize: 14, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Tap or hold your key, speak, and WhimprFlow types clean text wherever your cursor is.
+          Speak, and WhimprFlow types clean text wherever your cursor is.
         </p>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+          <KeyCap label="fn" dark />
+          <span style={{ fontSize: 12.5, color: palette.slate300 }}>tap to start, tap to finish</span>
+        </div>
       </div>
     </div>
   );
@@ -77,10 +148,21 @@ function groupByDay(items: HistoryItem[]): Group[] {
   return groups;
 }
 
+const CLAMP_STYLE = {
+  display: "-webkit-box",
+  WebkitLineClamp: 3,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+} as const;
+
 function HistoryRow({ item }: { item: HistoryItem }) {
   const d = new Date(item.ts_unix * 1000);
   const [copied, setCopied] = useState(false);
-  const copy = () => {
+  const [expanded, setExpanded] = useState(false);
+  const words = countWords(item.text);
+  const clampable = words > 40 || item.text.length > 220;
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
     void navigator.clipboard.writeText(item.text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
@@ -89,28 +171,67 @@ function HistoryRow({ item }: { item: HistoryItem }) {
   return (
     <div
       className="wf-row"
-      style={{ display: "flex", gap: 14, padding: "11px 4px", borderBottom: `1px solid ${theme.border}` }}
+      onClick={() => clampable && setExpanded((v) => !v)}
+      style={{
+        display: "flex",
+        gap: 14,
+        padding: "12px 8px",
+        margin: "0 -8px",
+        borderRadius: 10,
+        borderBottom: `1px solid ${theme.border}`,
+        cursor: clampable ? "pointer" : "default",
+      }}
     >
       <div
         style={{
-          flex: "0 0 74px",
+          flex: "0 0 68px",
           fontSize: 12,
           color: theme.textFaint,
           fontVariantNumeric: "tabular-nums",
-          paddingTop: 1,
+          paddingTop: 2,
         }}
       >
         {fmtTimeOfDay(d)}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, lineHeight: 1.5, color: theme.textBody }}>{item.text}</div>
-        {item.app && (
-          <div style={{ fontSize: 11, color: theme.textFaint, marginTop: 3 }}>{prettyApp(item.app)}</div>
-        )}
+        <div
+          style={{
+            fontSize: 13.5,
+            lineHeight: 1.55,
+            color: theme.textBody,
+            ...(clampable && !expanded ? CLAMP_STYLE : {}),
+          }}
+        >
+          {item.text}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+          {item.app && (
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 600,
+                color: theme.textMuted,
+                background: theme.track,
+                borderRadius: 999,
+                padding: "2px 9px 3px",
+              }}
+            >
+              {prettyApp(item.app)}
+            </span>
+          )}
+          <span style={{ fontSize: 11, color: theme.textFaint }}>
+            {fmtNum(words)} {words === 1 ? "word" : "words"}
+          </span>
+          {clampable && (
+            <span style={{ fontSize: 11, color: theme.accentDeep, fontWeight: 600 }}>
+              {expanded ? "show less" : "show more"}
+            </span>
+          )}
+        </div>
       </div>
       <div className="wf-row-actions" style={{ flex: "0 0 auto", display: "flex", alignItems: "flex-start" }}>
         <button
-          title="Copy"
+          title={copied ? "Copied" : "Copy"}
           onClick={copy}
           className="wf-press"
           style={{
@@ -123,6 +244,41 @@ function HistoryRow({ item }: { item: HistoryItem }) {
         >
           <Icon name="copy" size={15} />
         </button>
+      </div>
+    </div>
+  );
+}
+
+function EmptyHistory() {
+  return (
+    <div style={{ padding: "44px 8px 40px", textAlign: "center" }}>
+      <div
+        style={{
+          width: 46,
+          height: 46,
+          borderRadius: "50%",
+          background: theme.accentSoft,
+          color: theme.accentDeep,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Icon name="mic" size={19} />
+      </div>
+      <div
+        style={{
+          fontFamily: font.serif,
+          fontSize: 19,
+          fontWeight: 600,
+          color: theme.textStrong,
+          marginTop: 14,
+        }}
+      >
+        Nothing here yet.
+      </div>
+      <div style={{ fontSize: 13, color: theme.textMuted, marginTop: 6, lineHeight: 1.6 }}>
+        Tap <KeyCap label="fn" /> and start speaking. Your dictations land here.
       </div>
     </div>
   );
@@ -194,9 +350,7 @@ function HistorySection({ history }: { history: HistoryItem[] | null }) {
             <SkeletonRows rows={4} />
           </div>
         ) : history.length === 0 ? (
-          <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-            Your dictations will show up here. Tap your key and start speaking.
-          </div>
+          <EmptyHistory />
         ) : filtered.length === 0 ? (
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
             No dictations match “{query}”.
@@ -257,15 +411,108 @@ function BigStat({ value, label, accent }: { value: string; label: string; accen
   );
 }
 
-function StatsCard({ stats }: { stats: StatsSummary }) {
+// Words per day for the last 7 calendar days, oldest first.
+function lastSevenDays(history: HistoryItem[]): { letter: string; words: number; isToday: boolean }[] {
+  const byDay = new Map<string, number>();
+  for (const it of history) {
+    const k = dayKey(new Date(it.ts_unix * 1000));
+    byDay.set(k, (byDay.get(k) ?? 0) + countWords(it.text));
+  }
+  const letters = ["S", "M", "T", "W", "T", "F", "S"];
+  const out: { letter: string; words: number; isToday: boolean }[] = [];
+  const now = new Date();
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    out.push({ letter: letters[d.getDay()], words: byDay.get(dayKey(d)) ?? 0, isToday: i === 0 });
+  }
+  return out;
+}
+
+function WeekChart({ history }: { history: HistoryItem[] | null }) {
+  const days = useMemo(() => lastSevenDays(history ?? []), [history]);
+  const total = days.reduce((s, d) => s + d.words, 0);
+  const max = Math.max(...days.map((d) => d.words), 1);
+  const CHART_H = 42;
+  return (
+    <div style={{ padding: "14px 0 2px", borderTop: `1px solid ${theme.border}` }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <div
+          style={{
+            fontSize: 10.5,
+            fontWeight: 700,
+            letterSpacing: 0.6,
+            textTransform: "uppercase",
+            color: theme.textFaint,
+          }}
+        >
+          This week
+        </div>
+        <div style={{ fontSize: 11.5, color: theme.textMuted, fontVariantNumeric: "tabular-nums" }}>
+          {fmtCompact(total)} words
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 7, alignItems: "flex-end", height: CHART_H }}>
+        {days.map((d, i) => (
+          <div
+            key={i}
+            title={`${fmtNum(d.words)} words`}
+            style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}
+          >
+            <div
+              style={{
+                height: d.words > 0 ? Math.max(5, Math.round((d.words / max) * CHART_H)) : 4,
+                borderRadius: 4,
+                background: d.isToday
+                  ? theme.accent
+                  : d.words > 0
+                    ? "rgba(42,99,88,0.30)"
+                    : theme.track,
+                transition: "height 240ms cubic-bezier(0.2, 0.7, 0.3, 1)",
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 7, marginTop: 6 }}>
+        {days.map((d, i) => (
+          <div
+            key={i}
+            style={{
+              flex: 1,
+              textAlign: "center",
+              fontSize: 9.5,
+              fontWeight: d.isToday ? 700 : 500,
+              color: d.isToday ? theme.accentDeep : theme.textFaint,
+            }}
+          >
+            {d.letter}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StatsCard({ stats, history }: { stats: StatsSummary; history: HistoryItem[] | null }) {
   const unlocked = stats.total_words >= UNLOCK_WORDS;
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
         <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Your stats</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: theme.accentDeep, fontWeight: 600 }}>
-          <Icon name="flame" size={13} /> keep it up
-        </div>
+        {stats.day_streak >= 2 && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              fontSize: 12,
+              color: theme.accentDeep,
+              fontWeight: 700,
+            }}
+          >
+            <Icon name="flame" size={13} /> {stats.day_streak} days
+          </div>
+        )}
       </div>
 
       <div style={{ textAlign: "center", margin: "16px 0 6px" }}>
@@ -281,21 +528,25 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
         {wordsReference(stats.total_words)}
       </div>
 
+      <WeekChart history={history} />
+
       <div
         style={{
           display: "flex",
           gap: 8,
           padding: "16px 0 0",
+          marginTop: 14,
           borderTop: `1px solid ${theme.border}`,
         }}
       >
         <BigStat value={fmtNum(stats.avg_wpm)} label="avg WPM" accent />
+        <BigStat value={fmtNum(stats.best_wpm)} label="best WPM" />
         <BigStat value={`${stats.day_streak}`} label="day streak" />
       </div>
 
       {unlocked ? (
         <div style={{ fontSize: 12, color: theme.textFaint, textAlign: "center", marginTop: 14 }}>
-          {fmtNum(stats.best_wpm)} WPM best · saved you {fmtDuration(stats.time_saved_secs)} vs typing
+          saved you {fmtDuration(stats.time_saved_secs)} vs typing
         </div>
       ) : (
         <div style={{ fontSize: 12, color: theme.textFaint, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
@@ -326,21 +577,24 @@ export function Home() {
 
   return (
     <div style={{ maxWidth: 1000 }}>
-      <div style={{ marginBottom: 22 }}>
+      <div style={{ marginBottom: 24 }}>
         <h1
           style={{
-            fontFamily: font.ui,
-            fontSize: 27,
-            fontWeight: 700,
-            letterSpacing: -0.5,
+            fontFamily: font.serif,
+            fontSize: 34,
+            fontWeight: 600,
+            letterSpacing: -0.4,
             margin: 0,
             color: theme.textStrong,
+            lineHeight: 1.1,
           }}
         >
-          Welcome back
+          {greeting()}.
         </h1>
-        <p style={{ color: theme.textMuted, fontSize: 14, margin: "8px 0 0" }}>
-          {today > 0 ? `${fmtNum(today)} words dictated today.` : "Ready when you are. Tap or hold your key and speak."}
+        <p style={{ color: theme.textMuted, fontSize: 14.5, margin: "9px 0 0" }}>
+          {today > 0
+            ? `${fmtNum(today)} words so far today.`
+            : "Ready when you are. Tap or hold your key and speak."}
         </p>
       </div>
 
@@ -350,7 +604,7 @@ export function Home() {
           <HistorySection history={history} />
         </div>
         <div style={{ flex: "0 0 300px", width: 300, maxWidth: "100%" }}>
-          <StatsCard stats={stats} />
+          <StatsCard stats={stats} history={history} />
         </div>
       </div>
     </div>
