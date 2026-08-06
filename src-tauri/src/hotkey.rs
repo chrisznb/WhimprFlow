@@ -1194,6 +1194,97 @@ return acted"#,
         event
     }
 
+    // --- Audio-file transcription (drag a file into the hub) --------------
+
+    /// Parse a 16 kHz mono 16-bit WAV (as produced by afconvert) into f32 PCM.
+    fn wav_to_pcm16k(bytes: &[u8]) -> Option<Vec<f32>> {
+        if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+            return None;
+        }
+        let mut i = 12;
+        while i + 8 <= bytes.len() {
+            let id = &bytes[i..i + 4];
+            let size = u32::from_le_bytes(bytes[i + 4..i + 8].try_into().ok()?) as usize;
+            if id == b"data" {
+                let data = bytes.get(i + 8..i + 8 + size)?;
+                return Some(
+                    data.chunks_exact(2)
+                        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+                        .collect(),
+                );
+            }
+            i += 8 + size + (size & 1);
+        }
+        None
+    }
+
+    /// Transcribe an audio file (m4a/mp3/wav/aiff/…): convert with the built-in
+    /// afconvert, then run the configured engine (cloud first, local fallback).
+    pub fn transcribe_audio_file(path: &str) -> Result<String, String> {
+        let src = std::path::Path::new(path);
+        if !src.exists() {
+            return Err(format!("file not found: {path}"));
+        }
+        let tmp = support_dir().join("tmp-transcribe.wav");
+        let out = std::process::Command::new("afconvert")
+            .arg("-f")
+            .arg("WAVE")
+            .arg("-d")
+            .arg("LEI16@16000")
+            .arg("-c")
+            .arg("1")
+            .arg(src)
+            .arg(&tmp)
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !out.status.success() {
+            return Err(format!(
+                "could not decode this file: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        let bytes = std::fs::read(&tmp).map_err(|e| e.to_string())?;
+        let _ = std::fs::remove_file(&tmp);
+
+        let settings = current_settings();
+        // Cloud engine first when selected and available.
+        if matches!(settings.asr_mode, whimpr_core::AsrMode::Cloud) {
+            if let Some(key) = read_openai_key() {
+                let t0 = Instant::now();
+                match whimpr_cleanup::transcribe_cloud(
+                    &settings.asr_base_url,
+                    &key,
+                    &settings.asr_model,
+                    bytes.clone(),
+                ) {
+                    Ok(t) if !t.trim().is_empty() => {
+                        eprintln!(
+                            "[whimpr] file transcribed via cloud in {:?} ({} chars)",
+                            t0.elapsed(),
+                            t.len()
+                        );
+                        return Ok(t);
+                    }
+                    Ok(_) => eprintln!("[whimpr] cloud file ASR empty — trying local"),
+                    Err(e) => eprintln!("[whimpr] cloud file ASR failed ({e}) — trying local"),
+                }
+            }
+        }
+        let pcm = wav_to_pcm16k(&bytes).ok_or("could not parse converted audio")?;
+        let asr = ASR
+            .get()
+            .cloned()
+            .ok_or("local speech model not loaded (and no cloud engine available)")?;
+        let t0 = Instant::now();
+        let t = asr.transcribe(&pcm).map_err(|e| e.to_string())?;
+        eprintln!(
+            "[whimpr] file transcribed locally in {:?} ({} chars)",
+            t0.elapsed(),
+            t.text.len()
+        );
+        Ok(t.text)
+    }
+
     // --- In-app assistant ("Ask Whimpr") ----------------------------------
 
     const ASSISTANT_SYSTEM: &str = r#"You are Whimpr, the assistant inside the WhimprFlow dictation app. You chat naturally in the user's language (usually German) and you can change the app's data when asked.
@@ -2272,7 +2363,7 @@ pub use imp::{
 #[cfg(target_os = "macos")]
 pub use imp::{
     ask_mode_down, ask_mode_up, command_mode_down, command_mode_up, dictation_key_down,
-    dictation_key_up, import_contacts, snippet_suggestions,
+    dictation_key_up, import_contacts, snippet_suggestions, transcribe_audio_file,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -2293,6 +2384,10 @@ pub fn import_contacts() -> Result<u32, String> {
 #[cfg(not(target_os = "macos"))]
 pub fn snippet_suggestions() -> Vec<serde_json::Value> {
     Vec::new()
+}
+#[cfg(not(target_os = "macos"))]
+pub fn transcribe_audio_file(_path: &str) -> Result<String, String> {
+    Err("macOS only".to_string())
 }
 #[cfg(target_os = "macos")]
 pub use imp::assistant_chat;

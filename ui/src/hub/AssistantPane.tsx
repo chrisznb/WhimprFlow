@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
-import { Card, PageTitle } from "./ui";
+import { Card, PageTitle, Skeleton } from "./ui";
 import { Icon } from "./icons";
 import { assistantChat } from "./api";
 
@@ -99,7 +99,24 @@ export function AssistantPane() {
             </div>
           ))}
           {busy && (
-            <div style={{ color: theme.textFaint, fontSize: 13, padding: "4px 2px" }}>Thinking…</div>
+            <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 10 }}>
+              <div
+                style={{
+                  maxWidth: "60%",
+                  minWidth: 220,
+                  background: theme.cardBgSubtle,
+                  border: `1px solid ${theme.border}`,
+                  borderRadius: 14,
+                  padding: "12px 14px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <Skeleton h={11} />
+                <Skeleton h={11} w="72%" />
+              </div>
+            </div>
           )}
           <div ref={endRef} />
         </div>

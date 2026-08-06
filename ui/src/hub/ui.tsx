@@ -224,6 +224,50 @@ export function PageTitle({
   );
 }
 
+// ── Loading primitives ───────────────────────────────────────────────────────
+export function Skeleton({
+  w = "100%",
+  h = 14,
+  style,
+}: {
+  w?: number | string;
+  h?: number;
+  style?: CSSProperties;
+}) {
+  return <div className="wf-skeleton" style={{ width: w, height: h, ...style }} />;
+}
+
+export function SkeletonRows({ rows = 3 }: { rows?: number }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} style={{ display: "flex", gap: 14, alignItems: "center" }}>
+          <Skeleton w={64} h={12} />
+          <Skeleton w={`${78 - (i % 3) * 14}%`} h={12} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/// Waveform-style loader (the app's own motif instead of a native spinner).
+export function WaveLoader({ label }: { label?: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", height: 30 }}>
+        {[0, 1, 2, 3, 4].map((i) => (
+          <span
+            key={i}
+            className="wf-eq-bar"
+            style={{ animationDelay: `${i * 120}ms`, height: 10 + (i % 3) * 8 }}
+          />
+        ))}
+      </div>
+      {label && <div style={{ color: theme.textMuted, fontSize: 13.5 }}>{label}</div>}
+    </div>
+  );
+}
+
 // ── Live stats hook (polls every ~4s so numbers climb while dictating) ───────
 export function useStats(): StatsSummary {
   const [stats, setStats] = useState<StatsSummary>(EMPTY_STATS);

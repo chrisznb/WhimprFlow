@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
-import { Card, PageTitle, useStats } from "./ui";
+import { Card, PageTitle, Skeleton, useStats } from "./ui";
 import { Icon } from "./icons";
 import { getVoiceProfile, type StatsSummary, type VoiceProfile } from "./api";
 import { fmtCompact, fmtNum, newsArticles } from "./format";
@@ -301,11 +301,25 @@ function VoiceTab() {
 
   if (loading) {
     return (
-      <Card>
-        <div style={{ padding: "34px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-          Analyzing your dictations…
+      <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        <Skeleton h={6} w="100%" />
+        <Card>
+          <Skeleton h={22} w={180} style={{ marginBottom: 14 }} />
+          <Skeleton h={12} style={{ marginBottom: 8 }} />
+          <Skeleton h={12} w="88%" style={{ marginBottom: 8 }} />
+          <Skeleton h={12} w="64%" />
+        </Card>
+        <div style={{ display: "flex", gap: 18 }}>
+          <Card style={{ flex: 1 }}>
+            <Skeleton h={26} w="70%" style={{ marginBottom: 12 }} />
+            <Skeleton h={10} w={90} />
+          </Card>
+          <Card style={{ flex: 1 }}>
+            <Skeleton h={26} w="55%" style={{ marginBottom: 12 }} />
+            <Skeleton h={10} w={110} />
+          </Card>
         </div>
-      </Card>
+      </div>
     );
   }
   if (!profile || (!profile.profile_text && !profile.catchphrase)) {

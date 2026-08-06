@@ -349,3 +349,21 @@ export async function getSnippetSuggestions(): Promise<SnippetSuggestion[]> {
     return [];
   }
 }
+
+// ── File transcription ──────────────────────────────────────────────────────
+export async function transcribeFile(path: string): Promise<{ text: string } | { error: string }> {
+  try {
+    const text = await invoke<string>("transcribe_file", { path });
+    return { text };
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
+export async function chooseAudioFile(): Promise<string | null> {
+  try {
+    return await invoke<string | null>("choose_audio_file");
+  } catch {
+    return null;
+  }
+}

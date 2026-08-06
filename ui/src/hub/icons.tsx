@@ -19,6 +19,7 @@ import {
   faFire,
   faPaperPlane,
   faCommentDots,
+  faFileAudio,
 } from "@fortawesome/free-solid-svg-icons";
 import {
   faBookOpen as faBookOpenSolid,
@@ -26,6 +27,7 @@ import {
 import {
   faPenToSquare,
   faCircleQuestion,
+  faCopy,
 } from "@fortawesome/free-regular-svg-icons";
 
 export type IconName =
@@ -45,7 +47,9 @@ export type IconName =
   | "mic"
   | "flame"
   | "send"
-  | "assistant";
+  | "assistant"
+  | "fileaudio"
+  | "copy";
 
 const ICONS: Record<IconName, IconDefinition> = {
   home: faHouse,
@@ -65,6 +69,8 @@ const ICONS: Record<IconName, IconDefinition> = {
   flame: faFire,
   send: faPaperPlane,
   assistant: faCommentDots,
+  fileaudio: faFileAudio,
+  copy: faCopy,
 };
 
 export function Icon({

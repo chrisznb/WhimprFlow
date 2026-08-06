@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { font, palette } from "../tokens/values";
 import { theme } from "./theme";
-import { Card, useStats } from "./ui";
+import { Card, SkeletonRows, useStats } from "./ui";
 import { Icon } from "./icons";
 import { getHistory, type HistoryItem, type StatsSummary } from "./api";
 import { dayKey, dayLabel, fmtCompact, fmtDuration, fmtNum, fmtTimeOfDay, prettyApp, wordsReference } from "./format";
@@ -79,8 +79,18 @@ function groupByDay(items: HistoryItem[]): Group[] {
 
 function HistoryRow({ item }: { item: HistoryItem }) {
   const d = new Date(item.ts_unix * 1000);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard.writeText(item.text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
   return (
-    <div style={{ display: "flex", gap: 14, padding: "11px 4px", borderBottom: `1px solid ${theme.border}` }}>
+    <div
+      className="wf-row"
+      style={{ display: "flex", gap: 14, padding: "11px 4px", borderBottom: `1px solid ${theme.border}` }}
+    >
       <div
         style={{
           flex: "0 0 74px",
@@ -98,14 +108,31 @@ function HistoryRow({ item }: { item: HistoryItem }) {
           <div style={{ fontSize: 11, color: theme.textFaint, marginTop: 3 }}>{prettyApp(item.app)}</div>
         )}
       </div>
+      <div className="wf-row-actions" style={{ flex: "0 0 auto", display: "flex", alignItems: "flex-start" }}>
+        <button
+          title="Copy"
+          onClick={copy}
+          className="wf-press"
+          style={{
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            color: copied ? theme.accent : theme.textFaint,
+            padding: "2px 4px",
+          }}
+        >
+          <Icon name="copy" size={15} />
+        </button>
+      </div>
     </div>
   );
 }
 
-function HistorySection({ history }: { history: HistoryItem[] }) {
+function HistorySection({ history }: { history: HistoryItem[] | null }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
-  const filtered = q ? history.filter((h) => h.text.toLowerCase().includes(q)) : history;
+  const items = history ?? [];
+  const filtered = q ? items.filter((h) => h.text.toLowerCase().includes(q)) : items;
   const groups = groupByDay(filtered);
 
   return (
@@ -162,7 +189,11 @@ function HistorySection({ history }: { history: HistoryItem[] }) {
       </div>
 
       <div style={{ padding: "6px 18px 14px" }}>
-        {history.length === 0 ? (
+        {history === null ? (
+          <div style={{ padding: "18px 4px" }}>
+            <SkeletonRows rows={4} />
+          </div>
+        ) : history.length === 0 ? (
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
             Your dictations will show up here. Tap your key and start speaking.
           </div>
@@ -278,7 +309,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 export function Home() {
   const stats = useStats();
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [history, setHistory] = useState<HistoryItem[] | null>(null);
 
   useEffect(() => {
     let alive = true;

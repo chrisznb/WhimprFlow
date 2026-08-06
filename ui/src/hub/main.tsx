@@ -40,6 +40,33 @@ style.textContent = `
 
   .wf-row { transition: background 120ms ease; }
   .wf-row:hover { background: #FAF9F7; }
+  .wf-row .wf-row-actions { opacity: 0; transition: opacity 140ms ease; }
+  .wf-row:hover .wf-row-actions { opacity: 1; }
+
+  @keyframes wf-shimmer {
+    0% { background-position: -400px 0; }
+    100% { background-position: 400px 0; }
+  }
+  .wf-skeleton {
+    border-radius: 8px;
+    background: linear-gradient(90deg, #EFEDE9 25%, #F7F5F1 50%, #EFEDE9 75%);
+    background-size: 800px 100%;
+    animation: wf-shimmer 1.3s linear infinite;
+  }
+
+  @keyframes wf-eq {
+    0%, 100% { transform: scaleY(0.35); }
+    50% { transform: scaleY(1); }
+  }
+  .wf-eq-bar {
+    display: inline-block;
+    width: 5px;
+    border-radius: 999px;
+    background: #2A6358;
+    height: 26px;
+    transform-origin: center;
+    animation: wf-eq 0.9s ease-in-out infinite;
+  }
 `;
 document.head.appendChild(style);
 

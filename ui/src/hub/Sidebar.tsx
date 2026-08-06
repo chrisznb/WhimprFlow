@@ -5,6 +5,7 @@ import { Icon, type IconName } from "./icons";
 export type Page =
   | "home"
   | "assistant"
+  | "transcribe"
   | "insights"
   | "dictionary"
   | "snippets"
@@ -25,6 +26,7 @@ const MAIN: NavDef[] = [
   { key: "style", label: "Style", icon: "style" },
   { key: "transforms", label: "Transforms", icon: "transforms" },
   { key: "scratchpad", label: "Scratchpad", icon: "scratchpad" },
+  { key: "transcribe", label: "Transcribe", icon: "fileaudio" },
 ];
 
 const BOTTOM: NavDef[] = [

@@ -340,23 +340,60 @@ fn get_settings() -> whimpr_core::Settings {
 }
 
 #[tauri::command]
-fn import_contacts() -> Result<u32, String> {
-    hotkey::import_contacts()
+async fn transcribe_file(path: String) -> Result<String, String> {
+    // Heavy work off the main thread — the UI stays responsive (no beachball).
+    tauri::async_runtime::spawn_blocking(move || hotkey::transcribe_audio_file(&path))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn get_snippet_suggestions() -> Vec<serde_json::Value> {
-    hotkey::snippet_suggestions()
+async fn choose_audio_file() -> Option<String> {
+    tauri::async_runtime::spawn_blocking(choose_audio_file_blocking)
+        .await
+        .ok()
+        .flatten()
+}
+
+fn choose_audio_file_blocking() -> Option<String> {
+    let out = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(r#"POSIX path of (choose file with prompt "Choose an audio file to transcribe")"#)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if p.is_empty() { None } else { Some(p) }
 }
 
 #[tauri::command]
-fn assistant_chat(history: Vec<(String, String)>) -> serde_json::Value {
-    hotkey::assistant_chat(history)
+async fn import_contacts() -> Result<u32, String> {
+    tauri::async_runtime::spawn_blocking(hotkey::import_contacts)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn get_voice_profile(force: bool) -> serde_json::Value {
-    hotkey::voice_profile(force)
+async fn get_snippet_suggestions() -> Vec<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(hotkey::snippet_suggestions)
+        .await
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+async fn assistant_chat(history: Vec<(String, String)>) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || hotkey::assistant_chat(history))
+        .await
+        .unwrap_or_else(|e| serde_json::json!({"reply": e.to_string(), "actions_done": []}))
+}
+
+#[tauri::command]
+async fn get_voice_profile(force: bool) -> serde_json::Value {
+    tauri::async_runtime::spawn_blocking(move || hotkey::voice_profile(force))
+        .await
+        .unwrap_or_else(|_| serde_json::json!({}))
 }
 
 #[tauri::command]
@@ -632,6 +669,8 @@ pub fn run() {
             assistant_chat,
             import_contacts,
             get_snippet_suggestions,
+            transcribe_file,
+            choose_audio_file,
             get_snippets,
             add_snippet,
             remove_snippet,
