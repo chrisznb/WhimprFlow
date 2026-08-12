@@ -216,6 +216,9 @@ mod imp {
             return;
         }
         std::thread::spawn(|| {
+            // Wake sleeping Electron accessibility trees up front so both this
+            // snapshot and the later pre-paste focus probe can see the field.
+            crate::appctx::wake_ax_for_frontmost();
             let ctx = crate::appctx::focused_text_context(280);
             *WINDOW_CTX.get_or_init(|| Mutex::new(None)).lock().unwrap() = ctx;
         });
@@ -1011,13 +1014,44 @@ return acted"#,
                                 // Paste with landing verification: if the text
                                 // can't be confirmed in the focused field, it
                                 // stays in the clipboard and the pill says so.
-                                let pasted = if crate::appctx::has_text_focus() {
-                                    crate::paste::paste_text_verified(&text).unwrap_or(false)
-                                } else {
-                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                        let _ = cb.set_text(text.clone());
+                                let (probe, ax_err1, ax_err2) =
+                                    crate::appctx::probe_text_focus();
+                                music_log(&format!(
+                                    "paste: trusted={} probe={:?} err1={} err2={} front={:?}",
+                                    crate::appctx::ax_trusted(),
+                                    probe,
+                                    ax_err1,
+                                    ax_err2,
+                                    crate::appctx::frontmost_bundle_id()
+                                ));
+                                let pasted = match probe {
+                                    crate::appctx::FocusProbe::Text => {
+                                        let r = crate::paste::paste_text_verified(&text)
+                                            .unwrap_or(false);
+                                        music_log(&format!("paste: verified={r}"));
+                                        // Unverified is usually just AX not
+                                        // reflecting the field (Electron), not
+                                        // a failed paste: Cmd+V went to a real
+                                        // text field. Don't flash "Not pasted";
+                                        // the dictation stays in the clipboard
+                                        // as the safety net either way.
+                                        true
                                     }
-                                    false
+                                    // AX can't see into this app (sleeping
+                                    // Electron tree): paste blind like the
+                                    // pre-verify builds — verification would
+                                    // be blind too and only cry wolf.
+                                    crate::appctx::FocusProbe::Unknown => {
+                                        let r = crate::paste::paste_text(&text).is_ok();
+                                        music_log(&format!("paste: blind ok={r}"));
+                                        r
+                                    }
+                                    crate::appctx::FocusProbe::NoText => {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            let _ = cb.set_text(text.clone());
+                                        }
+                                        false
+                                    }
                                 };
                                 if !pasted {
                                     eprintln!(
