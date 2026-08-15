@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -92,7 +93,7 @@ function BigNumber({ value, accent }: { value: string; accent?: boolean }) {
 }
 
 // ── 7-day bar chart ──────────────────────────────────────────────────────────
-const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+const DOW = () => t("week.letters").split(",");
 
 function ActivityBars({ data }: { data: number[] }) {
   const max = Math.max(1, ...data);
@@ -103,7 +104,7 @@ function ActivityBars({ data }: { data: number[] }) {
         {data.map((v, i) => (
           <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}>
             <div
-              title={`${fmtNum(v)} words`}
+              title={t("in.nWords", { n: fmtNum(v) })}
               style={{
                 height: `${v > 0 ? Math.max(6, (v / max) * 100) : 3}%`,
                 background: v > 0 ? theme.accent : theme.track,
@@ -120,7 +121,7 @@ function ActivityBars({ data }: { data: number[] }) {
           const dow = (todayIdx - (data.length - 1 - i) + 7) % 7;
           return (
             <div key={i} style={{ flex: 1, textAlign: "center", fontSize: 10.5, color: theme.textFaint }}>
-              {i === data.length - 1 ? "Today" : DOW[dow]}
+              {i === data.length - 1 ? t("date.today") : DOW()[dow]}
             </div>
           );
         })}
@@ -161,7 +162,7 @@ function Heatmap({ last7 }: { last7: number[] }) {
           {col.map((v, day) => (
             <div
               key={day}
-              title={v > 0 ? `${fmtNum(v)} words` : "no activity"}
+              title={v > 0 ? t("in.nWords", { n: fmtNum(v) }) : t("in.noActivity")}
               style={{
                 width: 13,
                 height: 13,
@@ -181,8 +182,8 @@ type Tab = "usage" | "voice";
 
 function Tabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   const items: { key: Tab; label: string }[] = [
-    { key: "usage", label: "Your Usage" },
-    { key: "voice", label: "Your Voice" },
+    { key: "usage", label: t("in.usage") },
+    { key: "voice", label: t("in.voice") },
   ];
   return (
     <div style={{ display: "flex", gap: 24, borderBottom: `1px solid ${theme.border}`, marginBottom: 22 }}>
@@ -218,15 +219,15 @@ function UsageTab({ stats }: { stats: StatsSummary }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {/* Top row — three stat cards */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
-        <StatCard label="Words per minute" foot="Top 5% of dictators">
+        <StatCard label={t("in.wpm")} foot={t("in.wpmFoot")}>
           <Gauge value={stats.avg_wpm} max={140} />
         </StatCard>
 
-        <StatCard label="Fixes made by WhimprFlow" foot="dictations cleaned">
+        <StatCard label={t("in.fixes")} foot={t("in.fixesFoot")}>
           <BigNumber value={fmtCompact(stats.total_sessions)} accent />
         </StatCard>
 
-        <StatCard label="Total words dictated" foot={`≈ ${fmtNum(newsArticles(stats.total_words))} news articles`}>
+        <StatCard label={t("in.total")} foot={t("in.newsFoot", { n: fmtNum(newsArticles(stats.total_words)) })}>
           <BigNumber value={fmtCompact(stats.total_words)} />
         </StatCard>
       </div>
@@ -235,22 +236,22 @@ function UsageTab({ stats }: { stats: StatsSummary }) {
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
         <Card style={{ flex: "1 1 340px", minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>7-day activity</div>
-            <div style={{ fontSize: 12, color: theme.textFaint }}>{fmtNum(stats.words_today)} today</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("in.activity")}</div>
+            <div style={{ fontSize: 12, color: theme.textFaint }}>{t("in.nToday", { n: fmtNum(stats.words_today) })}</div>
           </div>
           <ActivityBars data={stats.last7_words} />
         </Card>
 
         <Card style={{ flex: "1 1 300px", minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 16 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Streak</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("in.streak")}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontWeight: 600, color: theme.accentDeep }}>
-              <Icon name="flame" size={14} /> {stats.day_streak} {stats.day_streak === 1 ? "day" : "days"}
+              <Icon name="flame" size={14} /> {stats.day_streak} {stats.day_streak === 1 ? t("in.day") : t("in.days")}
             </div>
           </div>
           <Heatmap last7={stats.last7_words} />
           <div style={{ fontSize: 12, color: theme.textFaint, marginTop: 14 }}>
-            Each square is a day. Keep the streak alive by dictating something every day.
+            {t("in.heatHint")}
           </div>
         </Card>
       </div>
@@ -326,7 +327,7 @@ function VoiceTab() {
     return (
       <Card>
         <div style={{ padding: "34px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-          Keep dictating. Your voice profile appears here once there is enough to analyze.
+          {t("in.voiceEmpty")}
         </div>
       </Card>
     );
@@ -351,14 +352,14 @@ function VoiceTab() {
           />
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12, color: theme.textFaint }}>
-          <span>Based on {fmtNum(profile.generated_at_words)} words</span>
-          <span>Next update in {fmtNum(remaining)} more words</span>
+          <span>{t("in.basedOn", { n: fmtNum(profile.generated_at_words) })}</span>
+          <span>{t("in.nextUpdate", { n: fmtNum(remaining) })}</span>
         </div>
       </div>
 
       <Card>
         <div style={{ fontFamily: font.serif, fontSize: 26, fontWeight: 600, color: theme.textStrong }}>
-          Voice Profile
+          {t("in.voiceProfile")}
         </div>
         <div
           style={{
@@ -370,18 +371,18 @@ function VoiceTab() {
             margin: "4px 0 14px",
           }}
         >
-          How you dictate
+          {t("in.howYou")}
         </div>
         <p style={{ fontSize: 15, lineHeight: 1.6, color: theme.textBody, margin: 0, maxWidth: 720 }}>
-          {profile.profile_text || "Not enough dictations yet for a written profile."}
+          {profile.profile_text || t("in.noProfile")}
         </p>
       </Card>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
-        <QuoteCard quote={profile.catchphrase} label="Catchphrase" />
-        <QuoteCard quote={profile.most_used_word} label="Most used word" />
+        <QuoteCard quote={profile.catchphrase} label={t("in.catchphrase")} />
+        <QuoteCard quote={profile.most_used_word} label={t("in.mostUsed")} />
         {profile.most_corrected_word && (
-          <QuoteCard quote={profile.most_corrected_word} label="Most corrected word" />
+          <QuoteCard quote={profile.most_corrected_word} label={t("in.mostCorrected")} />
         )}
       </div>
 
@@ -400,7 +401,7 @@ function VoiceTab() {
               marginTop: 4,
             }}
           >
-            Your peak time
+            {t("in.peak")}
           </div>
         </Card>
       )}
@@ -413,7 +414,7 @@ export function Insights() {
   const [tab, setTab] = useState<Tab>("usage");
   return (
     <div style={{ maxWidth: 1000 }}>
-      <PageTitle>Insights</PageTitle>
+      <PageTitle>{t("in.title")}</PageTitle>
       <Tabs tab={tab} onChange={setTab} />
       {tab === "usage" ? <UsageTab stats={stats} /> : <VoiceTab />}
     </div>

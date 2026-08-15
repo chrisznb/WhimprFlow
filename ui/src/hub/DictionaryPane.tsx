@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -12,16 +13,16 @@ import {
 
 type Tab = "all" | "personal" | "shared";
 
-const TABS: { key: Tab; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "personal", label: "Personal" },
-  { key: "shared", label: "Shared with team" },
+const TABS: () => { key: Tab; label: string }[] = () => [
+  { key: "all", label: t("dict.all") },
+  { key: "personal", label: t("dict.personal") },
+  { key: "shared", label: t("dict.shared") },
 ];
 
 function Tabs({ tab, onChange }: { tab: Tab; onChange: (t: Tab) => void }) {
   return (
     <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${theme.border}`, marginBottom: 18 }}>
-      {TABS.map((it) => {
+      {TABS().map((it) => {
         const active = tab === it.key;
         return (
           <button
@@ -76,10 +77,10 @@ function AddForm({ onDone }: { onDone: () => void }) {
 
   return (
     <Card style={{ marginBottom: 16, borderColor: theme.accentSoftBorder }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 12 }}>Add a word</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 12 }}>{t("dict.addWord")}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <div>
-          <label style={{ fontSize: 12, color: theme.textMuted, display: "block", marginBottom: 5 }}>Word</label>
+          <label style={{ fontSize: 12, color: theme.textMuted, display: "block", marginBottom: 5 }}>{t("dict.word")}</label>
           <input
             autoFocus
             value={correct}
@@ -93,7 +94,7 @@ function AddForm({ onDone }: { onDone: () => void }) {
         </div>
         <div>
           <label style={{ fontSize: 12, color: theme.textMuted, display: "block", marginBottom: 5 }}>
-            Also heard as <span style={{ color: theme.textFaint }}>(optional, comma-separated)</span>
+            {t("dict.alsoHeard")} <span style={{ color: theme.textFaint }}>{t("dict.optionalComma")}</span>
           </label>
           <input
             value={heard}
@@ -108,10 +109,10 @@ function AddForm({ onDone }: { onDone: () => void }) {
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <Button variant="accent" onClick={() => void submit()}>
-          Add word
+          {t("dict.addBtn")}
         </Button>
         <Button variant="ghost" onClick={onDone}>
-          Cancel
+          {t("dict.cancel")}
         </Button>
       </div>
     </Card>
@@ -136,19 +137,19 @@ function EntryRow({ entry, onRemove }: { entry: DictEntry; onRemove: () => void 
       <div style={{ minWidth: 0 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{entry.correct}</span>
         {entry.auto && (
-          <span title="Auto-learned" style={{ marginLeft: 6, fontSize: 13 }}>
-            ✨
+          <span title={t("dict.autoLearned")} style={{ marginLeft: 6, color: theme.accentDeep }}>
+            <Icon name="transforms" size={12} />
           </span>
         )}
         {entry.mishears.length > 0 && (
           <span style={{ marginLeft: 10, fontSize: 12.5, color: theme.textMuted }}>
-            → heard as {entry.mishears.join(", ")}
+            {t("dict.heardAs", { list: entry.mishears.join(", ") })}
           </span>
         )}
       </div>
       <button
         onClick={onRemove}
-        title="Remove"
+        title={t("dict.remove")}
         style={{
           border: "none",
           background: "transparent",
@@ -175,20 +176,20 @@ function ImportContactsButton({ onDone }: { onDone: () => void }) {
         variant="ghost"
         size="sm"
         onClick={() => {
-          setMsg("Importing…");
+          setMsg(t("dict.importing"));
           void import("./api").then(({ importContacts }) =>
             importContacts().then((r) => {
               if ("added" in r) {
-                setMsg(r.added > 0 ? `${r.added} names imported` : "No new names");
+                setMsg(r.added > 0 ? t("dict.imported", { n: r.added }) : t("dict.noNew"));
                 onDone();
               } else {
-                setMsg("Failed: " + r.error);
+                setMsg(t("dict.failed", { e: r.error }));
               }
             })
           );
         }}
       >
-        Import contact names
+        {t("dict.import")}
       </Button>
       {msg && <span style={{ fontSize: 12.5, color: theme.textMuted }}>{msg}</span>}
     </div>
@@ -228,17 +229,17 @@ export function DictionaryPane() {
               color: theme.textStrong,
             }}
           >
-            Dictionary
+            {t("dict.title")}
           </h1>
           <p style={{ color: theme.textMuted, fontSize: 14, margin: "8px 0 0" }}>
-            Teach WhimprFlow the words, names, and jargon it should always get right.
+            {t("dict.sub")}
           </p>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ImportContactsButton onDone={load} />
           <Button variant="accent" onClick={() => setAdding((a) => !a)}>
             <Icon name="plus" size={15} style={{ color: "#fff" }} />
-            Add new
+            {t("dict.addNew")}
           </Button>
         </div>
       </div>
@@ -263,7 +264,7 @@ export function DictionaryPane() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search words"
+            placeholder={t("dict.search")}
             style={{
               border: "none",
               outline: "none",
@@ -306,7 +307,7 @@ export function DictionaryPane() {
       {tab === "shared" ? (
         <Card>
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-            Team sharing coming soon.
+            {t("dict.teamSoon")}
           </div>
         </Card>
       ) : (
@@ -314,8 +315,8 @@ export function DictionaryPane() {
           {filtered.length === 0 ? (
             <div style={{ padding: "30px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
               {entries.length === 0
-                ? "No words yet. Add one, or WhimprFlow will auto-learn the terms you correct."
-                : `No words match “${query}”.`}
+                ? t("dict.empty")
+                : t("dict.noMatch", { q: query })}
             </div>
           ) : (
             <div style={{ padding: "4px 14px" }}>

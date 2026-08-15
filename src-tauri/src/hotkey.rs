@@ -1940,6 +1940,30 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
 
     // --- Update check + weekly review -------------------------------------
 
+    /// UI language for Rust-side strings (notifications): the settings value,
+    /// with "system" resolved from macOS's preferred languages once.
+    fn ui_lang_is_de() -> bool {
+        match current_settings().language.as_str() {
+            "de" => true,
+            "en" => false,
+            _ => {
+                static SYS_DE: OnceLock<bool> = OnceLock::new();
+                *SYS_DE.get_or_init(|| {
+                    std::process::Command::new("defaults")
+                        .args(["read", "-g", "AppleLanguages"])
+                        .output()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).contains("\"de"))
+                        .unwrap_or(false)
+                })
+            }
+        }
+    }
+
+    /// Pick the English or German variant of a notification string.
+    fn tr<'a>(en: &'a str, de: &'a str) -> &'a str {
+        if ui_lang_is_de() { de } else { en }
+    }
+
     fn notify(title: &str, body: &str) {
         // Native notification from the app itself, so a click opens WhimprFlow
         // (an osascript notification belongs to Script Editor and opens that).
@@ -1987,7 +2011,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             .ok_or("no zip asset in the latest release")?
             .to_string();
         let tag = v["tag_name"].as_str().unwrap_or("latest").to_string();
-        notify("WhimprFlow", &format!("Downloading update {tag}…"));
+        notify("WhimprFlow", &format!("{} {tag}…", tr("Downloading update", "Lade Update")));
 
         let tmp_zip = std::env::temp_dir().join("whimpr-update.zip");
         let tmp_dir = std::env::temp_dir().join("whimpr-update");
@@ -2031,7 +2055,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         }
         let _ = std::fs::remove_file(&tmp_zip);
         let _ = std::fs::remove_dir_all(&tmp_dir);
-        notify("WhimprFlow", "Update installed. Restarting…");
+        notify("WhimprFlow", tr("Update installed. Restarting…", "Update installiert. Starte neu…"));
         let _ = std::process::Command::new("open").arg(dest).spawn();
         std::thread::sleep(Duration::from_millis(600));
         std::process::exit(0);
@@ -2050,11 +2074,11 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
                 Some(l) if !l.is_empty() && l != current => {
                     if let Err(e) = self_update() {
                         eprintln!("[whimpr] self-update failed: {e}");
-                        notify("WhimprFlow update failed", &e);
+                        notify(tr("WhimprFlow update failed", "WhimprFlow-Update fehlgeschlagen"), &e);
                     }
                 }
-                Some(_) => notify("WhimprFlow", "You are up to date."),
-                None => notify("WhimprFlow", "Could not reach GitHub."),
+                Some(_) => notify("WhimprFlow", tr("You are up to date.", "Du bist auf dem neuesten Stand.")),
+                None => notify("WhimprFlow", tr("Could not reach GitHub.", "GitHub nicht erreichbar.")),
             }
         });
     }
@@ -2077,8 +2101,15 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             if !latest.is_empty() && latest != current {
                 eprintln!("[whimpr] update available: {latest} (running {current})");
                 notify(
-                    "WhimprFlow update available",
-                    &format!("Version {latest} is on GitHub (you run {current})."),
+                    tr("WhimprFlow update available", "WhimprFlow-Update verfügbar"),
+                    &format!(
+                        "{}",
+                        if ui_lang_is_de() {
+                            format!("Version {latest} ist auf GitHub (du nutzt {current}).")
+                        } else {
+                            format!("Version {latest} is on GitHub (you run {current}).")
+                        }
+                    ),
                 );
             }
         });
@@ -2156,8 +2187,15 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
                 pad.push_str(&format!("\n## Wochen-Review\n{text}\n"));
                 scratchpad_set(&pad);
                 notify(
-                    "WhimprFlow weekly review",
-                    &format!("{words} words this week. Full review is in your Scratchpad."),
+                    tr("WhimprFlow weekly review", "WhimprFlow Wochen-Review"),
+                    &format!(
+                        "{}",
+                        if ui_lang_is_de() {
+                            format!("{words} Wörter diese Woche. Das volle Review steht im Notizblock.")
+                        } else {
+                            format!("{words} words this week. Full review is in your Scratchpad.")
+                        }
+                    ),
                 );
                 eprintln!("[whimpr] weekly review written");
             }

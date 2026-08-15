@@ -32,6 +32,8 @@ export interface Settings {
   dictation_hotkey: string;
   // Your own typing speed (WPM); the "time saved vs typing" stat compares against it.
   typing_wpm: number;
+  // UI language: "system" | "de" | "en".
+  language: string;
 }
 
 export interface Status {
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   asr_model: "voxtral-mini-latest",
   dictation_hotkey: "",
   typing_wpm: 45,
+  language: "system",
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

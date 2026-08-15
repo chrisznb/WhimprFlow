@@ -1,3 +1,4 @@
+import { getLang, t } from "../i18n";
 import { useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -6,12 +7,33 @@ import type { Settings, StyleLevel, StylePrefs } from "./api";
 
 type Category = keyof StylePrefs;
 
-const CATEGORIES: { value: Category; label: string }[] = [
-  { value: "personal", label: "Personal messages" },
-  { value: "work", label: "Work messages" },
-  { value: "email", label: "Email" },
-  { value: "other", label: "Other" },
+const CATEGORIES: () => { value: Category; label: string }[] = () => [
+  { value: "personal", label: t("st.personal") },
+  { value: "work", label: t("st.work") },
+  { value: "email", label: t("st.email") },
+  { value: "other", label: t("st.other") },
 ];
+
+const SAMPLES_DE: Record<StyleLevel, Record<Category, string>> = {
+  formal: {
+    personal: "Hey, hast du morgen Zeit für ein Mittagessen? 12 Uhr würde mir passen.",
+    work: "Kurzes Update: Der Entwurf ist bereit zum Gegenlesen. Schaffst du das heute?",
+    email: "Hallo Alex,\n\nschön, dass wir heute gesprochen haben. Ich freue mich auf das nächste Mal.\n\nViele Grüße\nChris",
+    other: "Das Treffen wurde auf Donnerstag 15 Uhr verschoben. Bitte den Kalender aktualisieren.",
+  },
+  casual: {
+    personal: "Hey hast du morgen Zeit für Mittagessen? 12 würde mir passen",
+    work: "Kurzes Update: Entwurf ist fertig zum Gegenlesen, schaffst du das heute?",
+    email: "Hallo Alex, schön, dass wir heute gesprochen haben. Freu mich aufs nächste Mal.\n\nViele Grüße\nChris",
+    other: "Treffen auf Donnerstag 15 Uhr verschoben, Kalender aktualisieren",
+  },
+  very_casual: {
+    personal: "hey hast du morgen zeit für mittagessen? 12 würde passen",
+    work: "entwurf ist fertig, schaffst du heute nen blick drauf",
+    email: "hallo alex, schön gesprochen zu haben. bis zum nächsten mal\n\nlg\nchris",
+    other: "treffen auf donnerstag 15 uhr verschoben",
+  },
+};
 
 const LEVELS: {
   value: StyleLevel;
@@ -21,8 +43,8 @@ const LEVELS: {
 }[] = [
   {
     value: "formal",
-    title: "Formal.",
-    subtitle: "Caps + Punctuation",
+    title: "",
+    subtitle: "",
     sample: {
       personal: "Hey, are you free for lunch tomorrow? Let's do 12 if that works for you.",
       work: "Quick update: the draft is ready for review. Could you take a look today?",
@@ -32,8 +54,8 @@ const LEVELS: {
   },
   {
     value: "casual",
-    title: "Casual",
-    subtitle: "Caps + Less punctuation",
+    title: "",
+    subtitle: "",
     sample: {
       personal: "Hey are you free for lunch tomorrow? Let's do 12 if that works for you",
       work: "Quick update: draft's ready for review, can you take a look today?",
@@ -43,8 +65,8 @@ const LEVELS: {
   },
   {
     value: "very_casual",
-    title: "very casual",
-    subtitle: "No Caps + Less punctuation",
+    title: "",
+    subtitle: "",
     sample: {
       personal: "hey are you free for lunch tomorrow? let's do 12 if that works for you",
       work: "draft's ready for review, can you look today",
@@ -70,11 +92,11 @@ export function StylePane({
 
   return (
     <div style={{ maxWidth: 980 }}>
-      <PageTitle sub="How WhimprFlow formats your words, per app category, detected from where you dictate.">
-        Style
+      <PageTitle sub={t("st.sub")}>
+        {t("st.title")}
       </PageTitle>
       <div style={{ marginBottom: 20 }}>
-        <Tabs options={CATEGORIES} value={cat} onChange={setCat} />
+        <Tabs options={CATEGORIES()} value={cat} onChange={setCat} />
       </div>
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
         {LEVELS.map((l) => {
@@ -91,9 +113,11 @@ export function StylePane({
               }}
             >
               <div onClick={() => pick(l.value)}>
-                <div style={{ fontSize: 15, fontWeight: 650, color: theme.textStrong }}>{l.title}</div>
+                <div style={{ fontSize: 15, fontWeight: 650, color: theme.textStrong }}>
+                  {l.value === "formal" ? t("st.formal") : l.value === "casual" ? t("st.casual") : t("st.veryCasual")}
+                </div>
                 <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2, marginBottom: 14 }}>
-                  {l.subtitle}
+                  {l.value === "formal" ? t("st.formalSub") : l.value === "casual" ? t("st.casualSub") : t("st.veryCasualSub")}
                 </div>
                 <div
                   style={{
@@ -108,7 +132,7 @@ export function StylePane({
                     minHeight: 96,
                   }}
                 >
-                  {l.sample[cat]}
+                  {getLang() === "de" ? SAMPLES_DE[l.value][cat] : l.sample[cat]}
                 </div>
               </div>
             </Card>
@@ -116,8 +140,7 @@ export function StylePane({
         })}
       </div>
       <p style={{ color: theme.textFaint, fontSize: 12.5, marginTop: 18, lineHeight: 1.5 }}>
-        Personal: WhatsApp, Telegram, Messages, Discord, Signal. Work: Slack, Teams. Email: Mail,
-        Outlook. Everything else uses “Other”.
+        {t("st.footer")}
       </p>
     </div>
   );

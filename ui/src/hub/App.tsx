@@ -16,6 +16,7 @@ import { SettingsPane } from "./SettingsPane";
 import { Help } from "./Help";
 import { ComingSoon } from "./ComingSoon";
 import type { IconName } from "./icons";
+import { resolveLang, setLang, type Lang } from "../i18n";
 import {
   getSettings,
   setSettings,
@@ -33,6 +34,9 @@ export function App() {
   const [page, setPage] = useState<Page>("home");
   const [settings, setLocalSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [entered, setEntered] = useState(false);
+  // Language lives module-global in i18n; this state only forces a remount
+  // when it changes so every t() call re-runs.
+  const [lang, setLangState] = useState<Lang>(resolveLang(undefined));
   const [status, setStatus] = useState<Status>({
     accessibility: false,
     microphone: false,
@@ -43,13 +47,23 @@ export function App() {
 
   const refresh = () => getStatus().then(setStatus);
 
+  const applyLang = (setting: string | undefined) => {
+    const l = resolveLang(setting);
+    setLang(l);
+    setLangState(l);
+  };
+
   useEffect(() => {
-    getSettings().then(setLocalSettings);
+    getSettings().then((s) => {
+      setLocalSettings(s);
+      applyLang(s.language);
+    });
     refresh();
   }, []);
 
   const update = (s: Settings) => {
     setLocalSettings(s);
+    applyLang(s.language);
     void setSettings(s);
   };
 
@@ -62,6 +76,7 @@ export function App() {
 
   return (
     <div
+      key={lang}
       style={{
         display: "flex",
         height: "100vh",

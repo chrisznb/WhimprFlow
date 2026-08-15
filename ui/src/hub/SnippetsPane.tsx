@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -41,25 +42,25 @@ function AddForm({ onDone }: { onDone: () => void }) {
   return (
     <Card style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 12 }}>
-        New snippet
+        {t("sn.new")}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <input
           value={trigger}
           onChange={(e) => setTrigger(e.target.value)}
-          placeholder='Spoken trigger, e.g. "my email address"'
+          placeholder={t("sn.triggerPh")}
           style={inputStyle}
         />
         <textarea
           value={replacement}
           onChange={(e) => setReplacement(e.target.value)}
-          placeholder="Expands to…"
+          placeholder={t("sn.expandsPh")}
           rows={3}
           style={{ ...inputStyle, resize: "vertical" }}
         />
         <div>
           <Button onClick={() => void submit()}>
-            <Icon name="plus" size={14} /> Add snippet
+            <Icon name="plus" size={14} /> {t("sn.add")}
           </Button>
         </div>
       </div>
@@ -78,14 +79,14 @@ export function SnippetsPane() {
 
   return (
     <div style={{ maxWidth: 860 }}>
-      <PageTitle sub="Say the trigger phrase while dictating. WhimprFlow replaces it with the stored text.">
-        Snippets
+      <PageTitle sub={t("sn.sub")}>
+        {t("sn.title")}
       </PageTitle>
       <AddForm onDone={load} />
       {suggestions.length > 0 && (
         <Card style={{ marginBottom: 16, background: theme.lilacBg, borderColor: theme.lilacBorder }}>
           <div style={{ fontSize: 13.5, fontWeight: 650, color: theme.textStrong, marginBottom: 10 }}>
-            You dictate these a lot. Save as snippets?
+            {t("sn.suggest")}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {suggestions.map((sg) => (
@@ -98,7 +99,7 @@ export function SnippetsPane() {
                   variant="ghost"
                   onClick={() => void addSnippet(sg.phrase.split(" ").slice(0, 3).join(" "), sg.phrase).then(load)}
                 >
-                  Save
+                  {t("sn.save")}
                 </Button>
               </div>
             ))}
@@ -108,7 +109,7 @@ export function SnippetsPane() {
       <Card pad={0}>
         {items.length === 0 ? (
           <div style={{ padding: "34px 18px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-            No snippets yet. Add one above, e.g. “my email address”.
+            {t("sn.empty")}
           </div>
         ) : (
           items.map((s, i) => (
@@ -139,7 +140,7 @@ export function SnippetsPane() {
                 {s.replacement}
               </div>
               <button
-                title="Delete"
+                title={t("sn.delete")}
                 onClick={() => void removeSnippet(s.trigger).then(load)}
                 className="wf-press"
                 style={{

@@ -1,3 +1,4 @@
+import { resolveLang, setLang, t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMicrophone, faStop, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -194,6 +195,25 @@ export function FlowBar() {
   const [bars, setBars] = useState<number[]>([]);
   const [hover, setHover] = useState(false);
   const [vertical, setVertical] = useState(false);
+  const [, setLangTick] = useState(0);
+
+  // Pick up the UI language from settings, live on changes.
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    const apply = async () => {
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        const s = await invoke<{ language?: string }>("get_settings");
+        setLang(resolveLang(s.language));
+      } catch {
+        setLang(resolveLang(undefined));
+      }
+      setLangTick((n) => n + 1);
+    };
+    void apply();
+    tauriListen<unknown>("whimpr://settings-changed", () => void apply()).then((u) => (un = u));
+    return () => un?.();
+  }, []);
 
   useEffect(() => {
     let un1: (() => void) | undefined;
@@ -298,7 +318,7 @@ export function FlowBar() {
         ) : recording ? (
           <>
             <RoundButton
-              title="Cancel (Esc)"
+              title={t("pill.cancel")}
               bg="rgba(255,255,255,0.14)"
               onClick={() => void tauriInvoke("cancel_dictation")}
             >
@@ -322,7 +342,7 @@ export function FlowBar() {
               <DottedWaveform bars={bars} vertical={vertical} />
             </div>
             <RoundButton
-              title="Stop"
+              title={t("pill.stop")}
               bg={palette.error}
               onClick={() => void tauriInvoke("stop_dictation")}
             >
@@ -335,21 +355,21 @@ export function FlowBar() {
         ) : processing ? (
           <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 7, color: palette.pillTextMuted }}>
             <PulseDots />
-            {!vertical && "Cleaning up"}
+            {!vertical && t("pill.cleaning")}
           </span>
         ) : clipboard ? (
           <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: palette.pillText }}>
             <FontAwesomeIcon icon={faStop} style={{ display: "none" }} />
-            {vertical ? "!" : "Not pasted. Copied to clipboard"}
+            {vertical ? "!" : t("pill.notPasted")}
           </span>
         ) : done ? (
           <span className="wf-in" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
             <Check />
-            {!vertical && <span style={{ color: palette.pillTextMuted }}>Done</span>}
+            {!vertical && <span style={{ color: palette.pillTextMuted }}>{t("pill.done")}</span>}
           </span>
         ) : (
           <span className="wf-in" style={{ color: palette.pillTextMuted, fontSize: vertical ? 10 : 12 }}>
-            {vertical ? "!" : state === "error" ? "Something's off" : "Discarded"}
+            {vertical ? "!" : state === "error" ? t("pill.error") : t("pill.discarded")}
           </span>
         )}
       </div>

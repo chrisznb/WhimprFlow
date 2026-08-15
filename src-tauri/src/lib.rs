@@ -527,6 +527,8 @@ fn set_settings(app: tauri::AppHandle, settings: whimpr_core::Settings) {
     hotkey::update_settings(settings);
     // Hotkeys may have changed.
     register_transform_shortcuts(&app);
+    // Tell every webview (hub + pill) so language changes apply live.
+    let _ = app.emit("whimpr://settings-changed", ());
 }
 
 /// Aggregated dictation stats for the Hub dashboard. `tz_offset_minutes` is the

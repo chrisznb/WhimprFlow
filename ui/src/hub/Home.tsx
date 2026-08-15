@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useMemo, useState } from "react";
 import { font, palette } from "../tokens/values";
 import { theme } from "./theme";
@@ -16,10 +17,10 @@ function countWords(t: string): number {
 
 function greeting(): string {
   const h = new Date().getHours();
-  if (h < 5) return "Up late";
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
+  if (h < 5) return t("greet.late");
+  if (h < 12) return t("greet.morning");
+  if (h < 18) return t("greet.afternoon");
+  return t("greet.evening");
 }
 
 // Small keyboard-key chip, light and dark variants.
@@ -68,11 +69,10 @@ function SetupCard({ onDone }: { onDone: () => void }) {
         </div>
         <div style={{ flex: "1 1 260px", minWidth: 0 }}>
           <div style={{ fontFamily: font.serif, fontSize: 20, fontWeight: 600, color: theme.textStrong }}>
-            One download and you can talk.
+            {t("setup.title")}
           </div>
           <p style={{ fontSize: 13.5, color: theme.textMuted, lineHeight: 1.6, margin: "6px 0 12px" }}>
-            WhimprFlow transcribes on your Mac, nothing leaves it. Grab the speech model once
-            and dictation works offline from then on.
+            {t("setup.body")}
           </p>
           <ModelDownload kind="asr" sizeLabel="547 MB" onDone={onDone} />
         </div>
@@ -150,14 +150,14 @@ function Banner() {
             lineHeight: 1.2,
           }}
         >
-          Cleanup works anywhere you write.
+          {t("banner.title")}
         </div>
         <p style={{ color: palette.slate300, fontSize: 14, lineHeight: 1.55, margin: "10px 0 0" }}>
-          Speak, and WhimprFlow types clean text wherever your cursor is.
+          {t("banner.body")}
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
           <KeyCap label="fn" dark />
-          <span style={{ fontSize: 12.5, color: palette.slate300 }}>tap to start, tap to finish</span>
+          <span style={{ fontSize: 12.5, color: palette.slate300 }}>{t("banner.hint")}</span>
         </div>
       </div>
     </div>
@@ -257,18 +257,18 @@ function HistoryRow({ item }: { item: HistoryItem }) {
             </span>
           )}
           <span style={{ fontSize: 11, color: theme.textFaint }}>
-            {fmtNum(words)} {words === 1 ? "word" : "words"}
+            {fmtNum(words)} {words === 1 ? t("row.word") : t("row.words")}
           </span>
           {clampable && (
             <span style={{ fontSize: 11, color: theme.accentDeep, fontWeight: 600 }}>
-              {expanded ? "show less" : "show more"}
+              {expanded ? t("row.showLess") : t("row.showMore")}
             </span>
           )}
         </div>
       </div>
       <div className="wf-row-actions" style={{ flex: "0 0 auto", display: "flex", alignItems: "flex-start" }}>
         <button
-          title={copied ? "Copied" : "Copy"}
+          title={copied ? t("tr.copied") : t("tr.copy")}
           onClick={copy}
           className="wf-press"
           style={{
@@ -312,10 +312,10 @@ function EmptyHistory() {
           marginTop: 14,
         }}
       >
-        Nothing here yet.
+        {t("history.empty.title")}
       </div>
       <div style={{ fontSize: 13, color: theme.textMuted, marginTop: 6, lineHeight: 1.6 }}>
-        Tap <KeyCap label="fn" /> and start speaking. Your dictations land here.
+        {t("history.empty.before")} <KeyCap label="fn" /> {t("history.empty.after")}
       </div>
     </div>
   );
@@ -350,7 +350,7 @@ function HistorySection({ history }: { history: HistoryItem[] | null }) {
             color: theme.textFaint,
           }}
         >
-          Recent dictations
+          {t("history.title")}
         </div>
         <div
           style={{
@@ -368,7 +368,7 @@ function HistorySection({ history }: { history: HistoryItem[] | null }) {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search history"
+            placeholder={t("history.search")}
             style={{
               border: "none",
               outline: "none",
@@ -391,7 +391,7 @@ function HistorySection({ history }: { history: HistoryItem[] | null }) {
           <EmptyHistory />
         ) : filtered.length === 0 ? (
           <div style={{ padding: "36px 8px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-            No dictations match “{query}”.
+            {t("history.noMatch", { q: query })}
           </div>
         ) : (
           groups.map((g) => (
@@ -451,7 +451,7 @@ function BigStat({ value, label, accent }: { value: string; label: string; accen
 
 // The last 7 calendar days from the stats backend, oldest first (index 6 = today).
 function lastSevenDays(last7: number[]): { letter: string; words: number; isToday: boolean }[] {
-  const letters = ["S", "M", "T", "W", "T", "F", "S"];
+  const letters = t("week.letters").split(",");
   const now = new Date();
   const out: { letter: string; words: number; isToday: boolean }[] = [];
   for (let i = 6; i >= 0; i--) {
@@ -478,17 +478,17 @@ function WeekChart({ last7 }: { last7: number[] }) {
             color: theme.textFaint,
           }}
         >
-          This week
+          {t("stats.thisWeek")}
         </div>
         <div style={{ fontSize: 11.5, color: theme.textMuted, fontVariantNumeric: "tabular-nums" }}>
-          {fmtCompact(total)} words
+          {t("stats.weekWords", { n: fmtCompact(total) })}
         </div>
       </div>
       <div style={{ display: "flex", gap: 7, alignItems: "flex-end", height: CHART_H }}>
         {days.map((d, i) => (
           <div
             key={i}
-            title={`${fmtNum(d.words)} words`}
+            title={t("in.nWords", { n: fmtNum(d.words) })}
             style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", height: "100%" }}
           >
             <div
@@ -531,7 +531,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
   return (
     <Card>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Your stats</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("stats.title")}</div>
         {stats.day_streak >= 2 && (
           <div
             style={{
@@ -543,7 +543,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
               fontWeight: 700,
             }}
           >
-            <Icon name="flame" size={13} /> {stats.day_streak} days
+            <Icon name="flame" size={13} /> {t("stats.days", { n: stats.day_streak })}
           </div>
         )}
       </div>
@@ -554,7 +554,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
             {fmtCompact(stats.total_words)}
           </div>
           <div style={{ fontSize: 11.5, color: theme.textFaint, marginTop: 6, textTransform: "uppercase", letterSpacing: 0.6 }}>
-            total words
+            {t("stats.totalWords")}
           </div>
           <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 5 }}>
             {wordsReference(stats.total_words)}
@@ -574,18 +574,18 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
           borderTop: `1px solid ${theme.border}`,
         }}
       >
-        <BigStat value={fmtNum(stats.avg_wpm)} label="avg WPM" accent />
-        <BigStat value={fmtNum(stats.best_wpm)} label="best WPM" />
-        <BigStat value={`${stats.day_streak}`} label="day streak" />
+        <BigStat value={fmtNum(stats.avg_wpm)} label={t("stats.avgWpm")} accent />
+        <BigStat value={fmtNum(stats.best_wpm)} label={t("stats.bestWpm")} />
+        <BigStat value={`${stats.day_streak}`} label={t("stats.dayStreak")} />
       </div>
 
       {unlocked ? (
         <div style={{ fontSize: 12, color: theme.textFaint, textAlign: "center", marginTop: 14 }}>
-          saved you {fmtDuration(stats.time_saved_secs)} vs typing
+          {t("stats.saved", { t: fmtDuration(stats.time_saved_secs) })}
         </div>
       ) : (
         <div style={{ fontSize: 12, color: theme.textFaint, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
-          Keep dictating to unlock richer stats. {fmtNum(Math.max(0, UNLOCK_WORDS - stats.total_words))} words to go.
+          {t("stats.unlock", { n: fmtNum(Math.max(0, UNLOCK_WORDS - stats.total_words)) })}
         </div>
       )}
     </Card>
@@ -629,8 +629,8 @@ export function Home() {
         </h1>
         <p style={{ color: theme.textMuted, fontSize: 14.5, margin: "9px 0 0" }}>
           {today > 0
-            ? `${fmtNum(today)} words so far today.`
-            : "Ready when you are. Tap or hold your key and speak."}
+            ? t("home.wordsToday", { n: fmtNum(today) })
+            : t("home.ready")}
         </p>
       </div>
 

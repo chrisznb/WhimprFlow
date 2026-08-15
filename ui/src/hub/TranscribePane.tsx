@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -68,8 +69,8 @@ export function TranscribePane() {
 
   return (
     <div style={{ maxWidth: 880 }}>
-      <PageTitle sub="Drop a voice memo, recording, or any audio file. WhimprFlow transcribes it with your configured engine.">
-        Transcribe a file
+      <PageTitle sub={t("tr.sub")}>
+        {t("tr.title")}
       </PageTitle>
 
       <Card
@@ -83,7 +84,7 @@ export function TranscribePane() {
       >
         {busy ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 20, alignItems: "center" }}>
-            <WaveLoader label={`Transcribing ${busy}`} />
+            <WaveLoader label={t("tr.busy", { f: busy })} />
             <div style={{ width: "100%", maxWidth: 560, display: "flex", flexDirection: "column", gap: 10 }}>
               <Skeleton h={12} />
               <Skeleton h={12} w="86%" />
@@ -96,10 +97,10 @@ export function TranscribePane() {
               <Icon name="mic" size={26} style={{ color: theme.textFaint }} />
             </div>
             <div style={{ fontSize: 14.5, fontWeight: 600, color: theme.textStrong }}>
-              Drop an audio file anywhere in this window
+              {t("tr.drop")}
             </div>
             <div style={{ fontSize: 12.5, color: theme.textMuted, margin: "6px 0 14px" }}>
-              m4a, mp3, wav, aiff, caf. Voice memos from your iPhone work great.
+              {t("tr.formats")}
             </div>
             <Button
               onClick={() =>
@@ -108,7 +109,7 @@ export function TranscribePane() {
                 })
               }
             >
-              Choose file
+              {t("tr.choose")}
             </Button>
           </>
         )}
@@ -130,14 +131,14 @@ export function TranscribePane() {
               marginBottom: 12,
             }}
           >
-            <div style={{ fontSize: 14, fontWeight: 650, color: theme.textStrong }}>Transcript</div>
+            <div style={{ fontSize: 14, fontWeight: 650, color: theme.textStrong }}>{t("tr.transcript")}</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {copied && <span style={{ fontSize: 12.5, color: theme.accent }}>Copied</span>}
+              {copied && <span style={{ fontSize: 12.5, color: theme.accent }}>{t("tr.copied")}</span>}
               <Button size="sm" variant="ghost" onClick={copy}>
-                Copy
+                {t("tr.copy")}
               </Button>
               <Button size="sm" variant="ghost" onClick={() => void toScratchpad()}>
-                Add to Scratchpad
+                {t("tr.toScratchpad")}
               </Button>
             </div>
           </div>
@@ -171,14 +172,14 @@ export function TranscribePane() {
               color: theme.textFaint,
             }}
           >
-            Previous transcriptions
+            {t("tr.previous")}
           </div>
-          {past.map((t, i) => (
+          {past.map((ft, i) => (
             <div
-              key={`${t.ts_unix}-${i}`}
+              key={`${ft.ts_unix}-${i}`}
               className="wf-row"
               onClick={() => {
-                setResult(t.text);
+                setResult(ft.text);
                 setError(null);
               }}
               style={{
@@ -195,9 +196,9 @@ export function TranscribePane() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: theme.textStrong }}>
-                  {t.filename}
+                  {ft.filename}
                   <span style={{ fontWeight: 400, color: theme.textFaint, marginLeft: 8, fontSize: 11.5 }}>
-                    {new Date(t.ts_unix * 1000).toLocaleString()}
+                    {new Date(ft.ts_unix * 1000).toLocaleString()}
                   </span>
                 </div>
                 <div
@@ -210,15 +211,15 @@ export function TranscribePane() {
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {t.text}
+                  {ft.text}
                 </div>
               </div>
               <div className="wf-row-actions" style={{ flex: "0 0 auto" }}>
                 <button
-                  title="Copy"
+                  title={t("tr.copy")}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void navigator.clipboard.writeText(t.text);
+                    void navigator.clipboard.writeText(ft.text);
                   }}
                   className="wf-press"
                   style={{

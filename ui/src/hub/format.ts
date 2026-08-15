@@ -1,3 +1,4 @@
+import { getLang, t } from "../i18n";
 // Small, framework-free formatting helpers used across the Hub.
 
 // 12345 -> "12.3K", 1_200_000 -> "1.2M", 940 -> "940".
@@ -53,19 +54,22 @@ export function fmtNum(n: number): string {
 
 export function fmtDuration(secs: number): string {
   const m = Math.round(secs / 60);
-  if (m < 1) return "under a minute";
+  if (m < 1) return t("dur.underMinute");
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   const rem = m % 60;
   return rem ? `${h}h ${rem}m` : `${h}h`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = () => t("date.months").split(",");
 
-// "9:41 am"
+// "9:41 am" in English, 24h "09:41" in German.
 export function fmtTimeOfDay(d: Date): string {
   let h = d.getHours();
   const m = d.getMinutes();
+  if (getLang() === "de") {
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
+  }
   const ap = h >= 12 ? "pm" : "am";
   h = h % 12;
   if (h === 0) h = 12;
@@ -79,9 +83,9 @@ function startOfDay(d: Date): number {
 // Section header for a history group: "Today" / "Yesterday" / "Jul 15".
 export function dayLabel(d: Date, now: Date = new Date()): string {
   const diff = Math.round((startOfDay(now) - startOfDay(d)) / 86_400_000);
-  if (diff <= 0) return "Today";
-  if (diff === 1) return "Yesterday";
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+  if (diff <= 0) return t("date.today");
+  if (diff === 1) return t("date.yesterday");
+  return `${MONTHS()[d.getMonth()]} ${d.getDate()}`;
 }
 
 export function dayKey(d: Date): string {
@@ -90,11 +94,11 @@ export function dayKey(d: Date): string {
 
 // Friendly human comparison for a running word count (adds a little delight).
 export function wordsReference(n: number): string {
-  if (n < 60) return "just getting started";
-  if (n < 500) return `about ${Math.max(1, Math.round(n / 55))} thank-you notes`;
-  if (n < 4000) return `about ${newsArticles(n)} news articles`;
-  if (n < 40000) return `about ${Math.max(1, Math.round(n / 8000))} short film scripts`;
-  return `about ${Math.max(1, Math.round(n / 80000))} novels`;
+  if (n < 60) return t("ref.start");
+  if (n < 500) return t("ref.notes", { n: Math.max(1, Math.round(n / 55)) });
+  if (n < 4000) return t("ref.articles", { n: newsArticles(n) });
+  if (n < 40000) return t("ref.scripts", { n: Math.max(1, Math.round(n / 8000)) });
+  return t("ref.novels", { n: Math.max(1, Math.round(n / 80000)) });
 }
 
 // ~800 words per news article.

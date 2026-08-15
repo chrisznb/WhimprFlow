@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect } from "react";
 import { font, palette } from "../tokens/values";
 import { theme } from "./theme";
@@ -67,13 +68,13 @@ function Step({
         <div style={{ fontSize: 15, fontWeight: 600, color: theme.textStrong }}>
           {title}{" "}
           <span style={{ fontSize: 12, color: theme.textFaint, fontWeight: 400 }}>
-            {required ? "· required" : "· optional"}
+            {required ? t("ob.required") : t("ob.optional")}
           </span>
         </div>
         <div style={{ fontSize: 13, color: theme.textMuted, marginTop: 2 }}>{detail}</div>
       </div>
       {done ? (
-        <span style={{ color: theme.accentDeep, fontSize: 13, fontWeight: 600 }}>Granted</span>
+        <span style={{ color: theme.accentDeep, fontSize: 13, fontWeight: 600 }}>{t("ob.granted")}</span>
       ) : (
         <button
           onClick={onGrant}
@@ -91,7 +92,7 @@ function Step({
             whiteSpace: "nowrap",
           }}
         >
-          Grant
+          {t("ob.grant")}
         </button>
       )}
     </div>
@@ -134,7 +135,7 @@ export function Onboarding({
       <div style={{ width: 560, maxWidth: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
           <div style={{ fontFamily: font.serif, fontSize: 30, fontWeight: 600, color: theme.textStrong }}>
-            Set up WhimprFlow
+            {t("ob.title")}
           </div>
           <span
             style={{
@@ -149,18 +150,17 @@ export function Onboarding({
               padding: "2px 7px",
             }}
           >
-            Local
+            {t("ob.local")}
           </span>
         </div>
         <p style={{ color: theme.textMuted, lineHeight: 1.5, margin: "0 0 24px" }}>
-          Grant these to <b>WhimprFlow</b>, in order. Each turns green here the moment macOS applies
-          it. No relaunch needed.
+          {t("ob.intro")}
         </p>
 
         <Step
           n={1}
-          title="Accessibility"
-          detail="Detects the Fn key in every app and types your words. This is the one that makes the Fn key work everywhere."
+          title={t("ob.acc")}
+          detail={t("ob.accDetail")}
           done={acc}
           active={!acc}
           locked={false}
@@ -169,8 +169,8 @@ export function Onboarding({
         />
         <Step
           n={2}
-          title="Microphone"
-          detail="Lets WhimprFlow hear what you say."
+          title={t("ob.mic")}
+          detail={t("ob.micDetail")}
           done={mic}
           active={acc && !mic}
           locked={!acc}
@@ -179,8 +179,8 @@ export function Onboarding({
         />
         <Step
           n={3}
-          title="Input Monitoring"
-          detail="Extra reliability for key detection. Optional. You can enter without it."
+          title={t("ob.input")}
+          detail={t("ob.inputDetail")}
           done={inp}
           active={acc && mic && !inp}
           locked={!(acc && mic)}
@@ -205,12 +205,11 @@ export function Onboarding({
             background: canEnter ? theme.accentDeep : theme.textFaint,
           }}
         >
-          {canEnter ? "Enter WhimprFlow →" : "Grant Accessibility + Microphone to continue"}
+          {canEnter ? t("ob.enter") : t("ob.enterLocked")}
         </button>
 
         <p style={{ fontSize: 12, color: theme.textFaint, lineHeight: 1.5, marginTop: 16 }}>
-          If a permission stays grey after you flip it on in System Settings, toggle WhimprFlow off
-          and back on in that pane. The state here will update within a second.
+          {t("ob.hint")}
         </p>
       </div>
     </div>

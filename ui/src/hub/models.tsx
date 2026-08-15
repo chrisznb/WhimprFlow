@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 // Model install state + download UI, shared by the Home setup card and the
 // Settings "Models" section. Downloads stream progress via a Tauri event.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -87,7 +88,7 @@ export function ModelDownload({
         <div style={{ fontSize: 11.5, color: theme.textMuted, marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
           {progress && progress.total > 0
             ? `${fmtMb(progress.done)} / ${fmtMb(progress.total)} MB`
-            : "Starting download"}
+            : t("dl.starting")}
         </div>
       </div>
     );
@@ -110,7 +111,7 @@ export function ModelDownload({
           cursor: "pointer",
         }}
       >
-        Download ({sizeLabel})
+        {t("dl.button", { size: sizeLabel })}
       </button>
       {error && (
         <div style={{ fontSize: 12, color: "#B3261E", marginTop: 6, maxWidth: 260 }}>

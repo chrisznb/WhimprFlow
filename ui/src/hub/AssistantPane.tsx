@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -30,7 +31,7 @@ export function AssistantPane() {
       ...prev,
       {
         role: "assistant",
-        content: res?.reply || "No answer. Check your cleanup engine or API key in Settings.",
+        content: res?.reply || t("as.noAnswer"),
         actions: res?.actions_done ?? [],
       },
     ]);
@@ -39,16 +40,15 @@ export function AssistantPane() {
 
   return (
     <div style={{ maxWidth: 860, display: "flex", flexDirection: "column", height: "calc(100vh - 140px)" }}>
-      <PageTitle sub="Chat with your dictation app. It can add snippets and dictionary entries or write to the scratchpad when you ask.">
-        Ask Whimpr
+      <PageTitle sub={t("as.sub")}>
+        {t("as.title")}
       </PageTitle>
 
       <Card pad={0} style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
         <div style={{ flex: 1, overflowY: "auto", padding: "18px 18px 6px", minHeight: 0 }}>
           {msgs.length === 0 && (
             <div style={{ padding: "40px 12px", textAlign: "center", color: theme.textFaint, fontSize: 13.5 }}>
-              Try: "Leg ein Snippet an: meine Handynummer, plus 49 ..." or "Merk dir, dass Baulyo so
-              geschrieben wird."
+              {t("as.try")}
             </div>
           )}
           {msgs.map((m, i) => (
@@ -127,7 +127,7 @@ export function AssistantPane() {
             onKeyDown={(e) => {
               if (e.key === "Enter") void send();
             }}
-            placeholder="Type or dictate, then Enter"
+            placeholder={t("as.inputPh")}
             style={{
               flex: 1,
               background: theme.cardBgSubtle,

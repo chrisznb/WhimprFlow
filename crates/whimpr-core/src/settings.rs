@@ -125,6 +125,13 @@ pub struct Settings {
     /// typing" stat. 45 matches Wispr Flow's cited typed baseline.
     #[serde(default = "default_typing_wpm")]
     pub typing_wpm: u32,
+    /// UI language: "system" (default), "de", or "en".
+    #[serde(default = "default_language")]
+    pub language: String,
+}
+
+fn default_language() -> String {
+    "system".to_string()
 }
 
 fn default_typing_wpm() -> u32 {
@@ -160,6 +167,7 @@ impl Default for Settings {
             asr_model: default_asr_model(),
             dictation_hotkey: String::new(),
             typing_wpm: default_typing_wpm(),
+            language: default_language(),
         }
     }
 }

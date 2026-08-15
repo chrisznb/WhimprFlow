@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -27,14 +28,14 @@ export function ScratchpadPane() {
 
   return (
     <div style={{ maxWidth: 900, display: "flex", flexDirection: "column", height: "100%" }}>
-      <PageTitle sub="A quiet place to dictate long-form. Click into the page, tap your key, and speak. Everything autosaves.">
-        Scratchpad
+      <PageTitle sub={t("sp.sub")}>
+        {t("sp.title")}
       </PageTitle>
       <Card style={{ flex: 1, display: "flex", minHeight: 480, padding: 0 }} pad={0}>
         <textarea
           value={text}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Dictate or type…"
+          placeholder={t("sp.ph")}
           style={{
             flex: 1,
             width: "100%",
@@ -52,7 +53,7 @@ export function ScratchpadPane() {
         />
       </Card>
       <div style={{ marginTop: 8, fontSize: 12, color: theme.textFaint, textAlign: "right" }}>
-        {saved ? "Saved" : "Saving…"}
+        {saved ? t("sp.saved") : t("sp.saving")}
       </div>
     </div>
   );

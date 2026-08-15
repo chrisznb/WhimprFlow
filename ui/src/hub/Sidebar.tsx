@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Icon, type IconName } from "./icons";
@@ -17,21 +18,21 @@ export type Page =
 
 type NavDef = { key: Page; label: string; icon: IconName };
 
-const MAIN: NavDef[] = [
-  { key: "home", label: "Home", icon: "home" },
-  { key: "assistant", label: "Ask Whimpr", icon: "assistant" },
-  { key: "insights", label: "Insights", icon: "insights" },
-  { key: "dictionary", label: "Dictionary", icon: "dictionary" },
-  { key: "snippets", label: "Snippets", icon: "snippets" },
-  { key: "style", label: "Style", icon: "style" },
-  { key: "transforms", label: "Transforms", icon: "transforms" },
-  { key: "scratchpad", label: "Scratchpad", icon: "scratchpad" },
-  { key: "transcribe", label: "Transcribe", icon: "fileaudio" },
+const MAIN: () => NavDef[] = () => [
+  { key: "home", label: t("nav.home"), icon: "home" },
+  { key: "assistant", label: t("nav.assistant"), icon: "assistant" },
+  { key: "insights", label: t("nav.insights"), icon: "insights" },
+  { key: "dictionary", label: t("nav.dictionary"), icon: "dictionary" },
+  { key: "snippets", label: t("nav.snippets"), icon: "snippets" },
+  { key: "style", label: t("nav.style"), icon: "style" },
+  { key: "transforms", label: t("nav.transforms"), icon: "transforms" },
+  { key: "scratchpad", label: t("nav.scratchpad"), icon: "scratchpad" },
+  { key: "transcribe", label: t("nav.transcribe"), icon: "fileaudio" },
 ];
 
-const BOTTOM: NavDef[] = [
-  { key: "settings", label: "Settings", icon: "settings" },
-  { key: "help", label: "Help", icon: "help" },
+const BOTTOM: () => NavDef[] = () => [
+  { key: "settings", label: t("nav.settings"), icon: "settings" },
+  { key: "help", label: t("nav.help"), icon: "help" },
 ];
 
 function NavItem({ item, active, onClick }: { item: NavDef; active: boolean; onClick: () => void }) {
@@ -93,7 +94,7 @@ export function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => v
       </div>
 
       <nav style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {MAIN.map((n) => (
+        {MAIN().map((n) => (
           <NavItem key={n.key} item={n} active={page === n.key} onClick={() => setPage(n.key)} />
         ))}
       </nav>
@@ -101,7 +102,7 @@ export function Sidebar({ page, setPage }: { page: Page; setPage: (p: Page) => v
       <div style={{ flex: 1 }} />
 
       <nav style={{ display: "flex", flexDirection: "column", gap: 3, paddingTop: 12, borderTop: `1px solid ${theme.border}` }}>
-        {BOTTOM.map((n) => (
+        {BOTTOM().map((n) => (
           <NavItem key={n.key} item={n} active={page === n.key} onClick={() => setPage(n.key)} />
         ))}
       </nav>

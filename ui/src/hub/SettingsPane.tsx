@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -14,18 +15,18 @@ import {
   type Status,
 } from "./api";
 
-const MODES: { value: CleanupMode; label: string; hint: string }[] = [
-  { value: "raw", label: "Raw", hint: "Paste exactly what you said" },
-  { value: "local", label: "Local", hint: "On-device model (offline)" },
-  { value: "open_ai", label: "OpenAI", hint: "Cloud cleanup via OpenAI (or an OpenAI-compatible API like OpenRouter, set the base URL below)" },
-  { value: "anthropic", label: "Anthropic", hint: "Cloud cleanup via Claude" },
+const MODES: () => { value: CleanupMode; label: string; hint: string }[] = () => [
+  { value: "raw", label: t("set.raw"), hint: t("set.rawHint") },
+  { value: "local", label: t("set.local"), hint: t("set.localHint") },
+  { value: "open_ai", label: "OpenAI", hint: t("set.openaiHint") },
+  { value: "anthropic", label: "Anthropic", hint: t("set.anthropicHint") },
 ];
 
-const LEVELS: { value: CleanupLevel; label: string; hint: string }[] = [
-  { value: "none", label: "None", hint: "Transcribe exactly what you said, including mistakes." },
-  { value: "light", label: "Light", hint: "Clean up filler words and grammar. (Recommended)" },
-  { value: "medium", label: "Medium", hint: "Edit for clarity and conciseness." },
-  { value: "high", label: "High", hint: "Rewrite for brevity and polish." },
+const LEVELS: () => { value: CleanupLevel; label: string; hint: string }[] = () => [
+  { value: "none", label: t("set.lvlNone"), hint: t("set.lvlNoneHint") },
+  { value: "light", label: t("set.lvlLight"), hint: t("set.lvlLightHint") },
+  { value: "medium", label: t("set.lvlMedium"), hint: t("set.lvlMediumHint") },
+  { value: "high", label: t("set.lvlHigh"), hint: t("set.lvlHighHint") },
 ];
 
 function SectionTitle({ children, sub }: { children: React.ReactNode; sub?: string }) {
@@ -53,13 +54,13 @@ function KeyField({
     <div style={{ marginTop: 16 }}>
       <div style={{ fontSize: 13, marginBottom: 7, display: "flex", alignItems: "center", color: theme.textBody }}>
         <Dot ok={configured} />
-        {label} {configured ? "(configured)" : "(not set)"}
+        {label} {configured ? t("set.configured") : t("set.notSet")}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
         <input
           type="password"
           value={value}
-          placeholder={configured ? "Enter a new key to replace" : "Paste your API key"}
+          placeholder={configured ? t("set.keyReplacePh") : t("set.keyPh")}
           onChange={(e) => {
             setValue(e.target.value);
             setSaved(false);
@@ -90,13 +91,13 @@ function KeyField({
             });
           }}
         >
-          Save
+          {t("set.saveKey")}
         </Button>
       </div>
-      {saved && <div style={{ fontSize: 12, color: theme.accentDeep, marginTop: 6 }}>Saved to keychain</div>}
+      {saved && <div style={{ fontSize: 12, color: theme.accentDeep, marginTop: 6 }}>{t("set.savedKeychain")}</div>}
       {error && (
         <div style={{ fontSize: 12, color: "#C0392B", marginTop: 6 }}>
-          Not saved: {error}
+          {t("set.notSaved", { e: error })}
         </div>
       )}
     </div>
@@ -123,10 +124,10 @@ function PermRow({
         </span>
       </div>
       {ok ? (
-        <span style={{ color: theme.accentDeep, fontSize: 13, fontWeight: 600 }}>Granted</span>
+        <span style={{ color: theme.accentDeep, fontSize: 13, fontWeight: 600 }}>{t("ob.granted")}</span>
       ) : (
         <Button variant="ghost" size="sm" onClick={onClick}>
-          Grant
+          {t("ob.grant")}
         </Button>
       )}
     </div>
@@ -146,16 +147,34 @@ export function SettingsPane({
 }) {
   return (
     <div style={{ maxWidth: 720 }}>
-      <PageTitle serif>Settings</PageTitle>
+      <PageTitle serif>{t("set.title")}</PageTitle>
 
       <Card style={{ marginBottom: 16 }}>
-        <SectionTitle sub="Fn always works: hold to talk, tap to toggle. Add a second key here if you like (accelerator syntax, e.g. F13 or Ctrl+Space).">
-          Dictation hotkey
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("set.langTitle")}</div>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2 }}>{t("set.langSub")}</div>
+          </div>
+          <Segmented
+            options={[
+              { value: "system", label: t("set.langSystem") },
+              { value: "de", label: "Deutsch" },
+              { value: "en", label: "English" },
+            ]}
+            value={settings.language || "system"}
+            onChange={(v) => onChange({ ...settings, language: v })}
+          />
+        </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <SectionTitle sub={t("set.hotkeySub")}>
+          {t("set.hotkeyTitle")}
         </SectionTitle>
         <input
           type="text"
           value={settings.dictation_hotkey}
-          placeholder="e.g. F13 or Ctrl+Space (empty = Fn only)"
+          placeholder={t("set.hotkeyPh")}
           onChange={(e) => onChange({ ...settings, dictation_hotkey: e.target.value })}
           style={{
             width: "100%",
@@ -174,24 +193,22 @@ export function SettingsPane({
       </Card>
 
       <Card style={{ marginBottom: 16 }}>
-        <SectionTitle sub="Where your speech is turned into text.">Transcription</SectionTitle>
+        <SectionTitle sub={t("set.trSub")}>{t("set.trTitle")}</SectionTitle>
         <Segmented
           options={[
-            { value: "local", label: "Local (Whisper)" },
-            { value: "cloud", label: "Cloud" },
+            { value: "local", label: t("set.trLocal") },
+            { value: "cloud", label: t("set.trCloud") },
           ]}
           value={settings.asr_mode}
           onChange={(v) => onChange({ ...settings, asr_mode: v })}
         />
         <div style={{ color: theme.textMuted, fontSize: 12.5, marginTop: 10 }}>
-          {settings.asr_mode === "local"
-            ? "On-device whisper.cpp, fully offline."
-            : "OpenAI-compatible audio API (Mistral Voxtral, Groq Whisper, OpenAI). Uses the OpenAI API key below. Falls back to local if the request fails."}
+          {settings.asr_mode === "local" ? t("set.trLocalHint") : t("set.trCloudHint")}
         </div>
         {settings.asr_mode === "cloud" && (
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>Base URL</div>
+              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>{t("set.baseUrl")}</div>
               <input
                 type="text"
                 value={settings.asr_base_url}
@@ -211,7 +228,7 @@ export function SettingsPane({
               />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>Model</div>
+              <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>{t("set.model")}</div>
               <input
                 type="text"
                 value={settings.asr_model}
@@ -236,18 +253,18 @@ export function SettingsPane({
       </Card>
 
       <Card style={{ marginBottom: 16 }}>
-        <SectionTitle sub="Where your dictation is cleaned up before it's typed.">Cleanup Engine</SectionTitle>
+        <SectionTitle sub={t("set.engineSub")}>{t("set.engineTitle")}</SectionTitle>
         <Segmented
-          options={MODES.map((m) => ({ value: m.value, label: m.label }))}
+          options={MODES().map((m) => ({ value: m.value, label: m.label }))}
           value={settings.cleanup_mode}
           onChange={(v) => onChange({ ...settings, cleanup_mode: v })}
         />
         <div style={{ color: theme.textMuted, fontSize: 12.5, marginTop: 10 }}>
-          {MODES.find((m) => m.value === settings.cleanup_mode)?.hint}
+          {MODES().find((m) => m.value === settings.cleanup_mode)?.hint}
         </div>
 
         <KeyField
-          label="OpenAI API key"
+          label={t("set.openaiKey")}
           configured={status.has_openai_key}
           onSave={async (k) => {
             const err = await setApiKey("openai", k);
@@ -258,7 +275,7 @@ export function SettingsPane({
         <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>
-              Base URL (blank = OpenAI; e.g. https://openrouter.ai/api/v1 for OpenRouter)
+              {t("set.baseUrlHint")}
             </div>
             <input
               type="text"
@@ -281,7 +298,7 @@ export function SettingsPane({
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>
-              Model (e.g. an OpenRouter model slug)
+              {t("set.modelHint")}
             </div>
             <input
               type="text"
@@ -304,7 +321,7 @@ export function SettingsPane({
           </div>
         </div>
         <KeyField
-          label="Anthropic API key"
+          label={t("set.anthropicKey")}
           configured={status.has_anthropic_key}
           onSave={async (k) => {
             const err = await setApiKey("anthropic", k);
@@ -315,9 +332,9 @@ export function SettingsPane({
       </Card>
 
       <Card style={{ marginBottom: 16 }}>
-        <SectionTitle>Auto Cleanup</SectionTitle>
+        <SectionTitle>{t("set.autoTitle")}</SectionTitle>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {LEVELS.map((l) => {
+          {LEVELS().map((l) => {
             const selected = settings.cleanup_level === l.value;
             return (
               <button
@@ -347,9 +364,9 @@ export function SettingsPane({
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>Your typing speed</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("set.typingTitle")}</div>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2 }}>
-              Words per minute when you type. Used for the "time saved" stat.
+              {t("set.typingSub")}
             </div>
           </div>
           <input
@@ -385,12 +402,12 @@ export function SettingsPane({
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
-            Play a sound when recording starts
+            {t("set.soundTitle")}
           </div>
           <Segmented
             options={[
-              { value: "on", label: "On" },
-              { value: "off", label: "Off" },
+              { value: "on", label: t("set.on") },
+              { value: "off", label: t("set.off") },
             ]}
             value={settings.sound_on_start ? "on" : "off"}
             onChange={(v) => onChange({ ...settings, sound_on_start: v === "on" })}
@@ -402,16 +419,16 @@ export function SettingsPane({
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
-              Context awareness
+              {t("set.ctxTitle")}
             </div>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 3 }}>
-              Reads the text around your cursor so cleanup understands names and what you're replying to. Stays on this Mac.
+              {t("set.ctxSub")}
             </div>
           </div>
           <Segmented
             options={[
-              { value: "on", label: "On" },
-              { value: "off", label: "Off" },
+              { value: "on", label: t("set.on") },
+              { value: "off", label: t("set.off") },
             ]}
             value={settings.context_awareness ? "on" : "off"}
             onChange={(v) => onChange({ ...settings, context_awareness: v === "on" })}
@@ -422,12 +439,12 @@ export function SettingsPane({
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>
-            Mute music while dictating
+            {t("set.muteTitle")}
           </div>
           <Segmented
             options={[
-              { value: "on", label: "On" },
-              { value: "off", label: "Off" },
+              { value: "on", label: t("set.on") },
+              { value: "off", label: t("set.off") },
             ]}
             value={settings.mute_music_while_dictating ? "on" : "off"}
             onChange={(v) => onChange({ ...settings, mute_music_while_dictating: v === "on" })}
@@ -436,18 +453,14 @@ export function SettingsPane({
       </Card>
 
       <Card>
-        <SectionTitle sub="Grant these to WhimprFlow, then quit and reopen the app if a dot stays grey.">
-          Permissions
+        <SectionTitle sub={t("set.permsSub")}>
+          {t("set.permsTitle")}
         </SectionTitle>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <PermRow
             ok={status.accessibility}
-            label="Accessibility"
-            detail={
-              status.accessibility
-                ? "granted. Fn works everywhere and types your words"
-                : "the key one: makes Fn work in EVERY app AND types your words"
-            }
+            label={t("set.permAcc")}
+            detail={t("set.permAccDetail")}
             onClick={() => {
               requestAccessibility();
               setTimeout(refresh, 800);
@@ -455,8 +468,8 @@ export function SettingsPane({
           />
           <PermRow
             ok={status.microphone}
-            label="Microphone"
-            detail={status.microphone ? "granted" : "hears what you say"}
+            label={t("set.permMic")}
+            detail={t("set.permMicDetail")}
             onClick={() => {
               requestMicrophone();
               setTimeout(refresh, 1000);
@@ -464,8 +477,8 @@ export function SettingsPane({
           />
           <PermRow
             ok={status.input_monitoring}
-            label="Input Monitoring"
-            detail="optional, extra reliability for key detection"
+            label={t("set.permInput")}
+            detail={t("set.permInputDetail")}
             onClick={() => {
               requestInputMonitoring();
               setTimeout(refresh, 1000);
@@ -500,7 +513,7 @@ function ModelRow({
       </div>
       {installed ? (
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: theme.accentDeep }}>
-          <Dot ok /> Installed
+          <Dot ok /> {t("set.installed")}
         </div>
       ) : (
         <ModelDownload kind={kind} sizeLabel={sizeLabel} onDone={onDone} />
@@ -514,11 +527,11 @@ function ModelsCard() {
   if (status === null) return null;
   return (
     <Card style={{ marginBottom: 16 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 14 }}>Models</div>
+      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 14 }}>{t("set.modelsTitle")}</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <ModelRow
-          title="Speech recognition"
-          detail="Whisper large-v3-turbo, runs on your Mac. Required for offline dictation."
+          title={t("set.asrTitle")}
+          detail={t("set.asrDetail")}
           installed={status.asr}
           kind="asr"
           sizeLabel="547 MB"
@@ -526,8 +539,8 @@ function ModelsCard() {
         />
         <div style={{ borderTop: `1px solid ${theme.border}` }} />
         <ModelRow
-          title="Local cleanup"
-          detail="Qwen 3 4B for on-device text cleanup. Optional if cleanup runs in the cloud."
+          title={t("set.llmTitle")}
+          detail={t("set.llmDetail")}
           installed={status.llm}
           kind="llm"
           sizeLabel="2.4 GB"
