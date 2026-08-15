@@ -279,6 +279,50 @@ pub fn chat_completion_messages(
         .to_string())
 }
 
+/// Stream a (large) file to disk, reporting progress. Writes to `dest` with a
+/// `.part` suffix first and renames on success, so an aborted download never
+/// leaves a half file behind that would be mistaken for a working model.
+/// `progress` receives (bytes_done, total_bytes); total is 0 when unknown.
+pub fn download_file(
+    url: &str,
+    dest: &std::path::Path,
+    mut progress: impl FnMut(u64, u64),
+) -> anyhow::Result<()> {
+    use std::io::{Read, Write};
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(30 * 60))
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .user_agent("WhimprFlow")
+        .build()?;
+    let resp = client.get(url).send()?.error_for_status()?;
+    let total = resp.content_length().unwrap_or(0);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let part = dest.with_extension("part");
+    let mut out = std::fs::File::create(&part)?;
+    let mut reader = resp;
+    let mut buf = vec![0u8; 1024 * 512];
+    let mut done: u64 = 0;
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        out.write_all(&buf[..n])?;
+        done += n as u64;
+        progress(done, total);
+    }
+    out.flush()?;
+    drop(out);
+    if total > 0 && done < total {
+        let _ = std::fs::remove_file(&part);
+        anyhow::bail!("download incomplete ({done} of {total} bytes)");
+    }
+    std::fs::rename(&part, dest)?;
+    Ok(())
+}
+
 /// Small JSON GET helper (update check etc.).
 pub fn http_get_json(url: &str) -> anyhow::Result<serde_json::Value> {
     let client = reqwest::blocking::Client::builder()

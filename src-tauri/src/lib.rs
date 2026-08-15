@@ -347,6 +347,28 @@ async fn transcribe_file(path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize)]
+struct ModelStatusDto {
+    asr: bool,
+    llm: bool,
+}
+
+/// Which model files are installed (drives the first-launch setup card).
+#[tauri::command]
+fn model_status() -> ModelStatusDto {
+    let (asr, llm) = hotkey::model_status();
+    ModelStatusDto { asr, llm }
+}
+
+/// Download a model ("asr" or "llm") with progress events; resolves when the
+/// file is on disk and the matching engine is loading.
+#[tauri::command]
+async fn download_model(kind: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || hotkey::download_model(&kind))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn choose_audio_file() -> Option<String> {
     tauri::async_runtime::spawn_blocking(choose_audio_file_blocking)
@@ -675,6 +697,8 @@ pub fn run() {
             import_contacts,
             get_snippet_suggestions,
             transcribe_file,
+            model_status,
+            download_model,
             choose_audio_file,
             get_file_transcripts,
             get_snippets,

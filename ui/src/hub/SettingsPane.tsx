@@ -2,6 +2,7 @@ import { useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Button, Card, Dot, PageTitle, Segmented } from "./ui";
+import { ModelDownload, useModelStatus } from "./models";
 import {
   requestAccessibility,
   requestInputMonitoring,
@@ -341,6 +342,8 @@ export function SettingsPane({
         </div>
       </Card>
 
+      <ModelsCard />
+
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
@@ -471,5 +474,66 @@ export function SettingsPane({
         </div>
       </Card>
     </div>
+  );
+}
+
+function ModelRow({
+  title,
+  detail,
+  installed,
+  kind,
+  sizeLabel,
+  onDone,
+}: {
+  title: string;
+  detail: string;
+  installed: boolean;
+  kind: "asr" | "llm";
+  sizeLabel: string;
+  onDone: () => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+      <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{title}</div>
+        <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2 }}>{detail}</div>
+      </div>
+      {installed ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 600, color: theme.accentDeep }}>
+          <Dot ok /> Installed
+        </div>
+      ) : (
+        <ModelDownload kind={kind} sizeLabel={sizeLabel} onDone={onDone} />
+      )}
+    </div>
+  );
+}
+
+function ModelsCard() {
+  const { status, refresh } = useModelStatus();
+  if (status === null) return null;
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 14 }}>Models</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <ModelRow
+          title="Speech recognition"
+          detail="Whisper large-v3-turbo, runs on your Mac. Required for offline dictation."
+          installed={status.asr}
+          kind="asr"
+          sizeLabel="547 MB"
+          onDone={refresh}
+        />
+        <div style={{ borderTop: `1px solid ${theme.border}` }} />
+        <ModelRow
+          title="Local cleanup"
+          detail="Qwen 3 4B for on-device text cleanup. Optional if cleanup runs in the cloud."
+          installed={status.llm}
+          kind="llm"
+          sizeLabel="2.4 GB"
+          onDone={refresh}
+        />
+      </div>
+    </Card>
   );
 }

@@ -29,7 +29,7 @@ The app is not notarized, so macOS will refuse to open the download and may even
 xattr -cr /Applications/WhimprFlow.app
 ```
 
-Grant Accessibility and Microphone when asked. Updates install themselves from the tray menu ("Check for updates").
+Grant Accessibility and Microphone when asked. On first launch the app offers the speech-model download right in the Hub (547 MB, one click); the optional local cleanup model lives in Settings under Models. Updates install themselves from the tray menu ("Check for updates").
 
 ### Option 2: Build from source
 
@@ -50,9 +50,9 @@ If you have an Apple Development certificate, sign the app with it so macOS perm
 codesign --force --deep -s "Apple Development: Your Name (TEAMID)" /Applications/WhimprFlow.app
 ```
 
-### Models
+### Models (manual alternative)
 
-Models are not bundled (multi-GB). Put them in `~/Library/Application Support/WhimprFlow/models/`:
+The app downloads models for you on first launch. If you prefer curl, put them in `~/Library/Application Support/WhimprFlow/models/`:
 
 ```bash
 mkdir -p ~/Library/Application\ Support/WhimprFlow/models

@@ -97,7 +97,7 @@ pub fn worker_bin_path() -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     {
         let home = std::env::var("HOME").unwrap_or_default();
-        let dev = PathBuf::from(home).join("WhimprFlow/target/release/whimpr-llm-worker");
+        let dev = PathBuf::from(home).join("dev/opensource/WhimprFlow/target/release/whimpr-llm-worker");
         dev.exists().then_some(dev)
     }
 }
@@ -117,6 +117,11 @@ pub fn model_path() -> PathBuf {
         }
     }
     dir.join("qwen2.5-1.5b-instruct-q4_k_m.gguf")
+}
+
+/// Whether any local cleanup model file is on disk.
+pub fn model_present() -> bool {
+    model_path().exists()
 }
 
 /// Spawn the worker if both the binary and the model are present.

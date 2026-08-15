@@ -357,6 +357,117 @@ return acted"#,
         dir.join("ggml-base.en.bin")
     }
 
+    /// Load (or re-load after a download) the whisper engine off-thread.
+    /// No-op when it's already loaded or no model file exists yet.
+    pub fn load_asr() {
+        std::thread::spawn(|| {
+            if ASR.get().is_some() {
+                return;
+            }
+            let path = model_path();
+            if !path.exists() {
+                eprintln!("[whimpr] ASR model not found at {}", path.display());
+                return;
+            }
+            match whimpr_asr::WhisperEngine::load(&path) {
+                Ok(engine) => {
+                    // Transcribe a second of silence now so Metal compiles its
+                    // pipelines at startup, not on the user's first dictation.
+                    let t = Instant::now();
+                    let _ = engine.transcribe(&vec![0.0f32; 16_000]);
+                    eprintln!("[whimpr] ASR warmed up in {:?}", t.elapsed());
+                    let _ = ASR.set(Arc::new(engine));
+                    eprintln!("[whimpr] ASR model loaded — ready to transcribe");
+                }
+                Err(e) => eprintln!("[whimpr] ASR model load failed: {e}"),
+            }
+        });
+    }
+
+    /// Spawn the local cleanup worker after its model was downloaded at
+    /// runtime. No-op when a worker is already running.
+    pub fn load_local_llm() {
+        std::thread::spawn(|| {
+            // install() populates LOCAL from its own thread; give it a moment.
+            for _ in 0..10 {
+                if LOCAL.get().is_some() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(500));
+            }
+            let Some(slot) = LOCAL.get() else { return };
+            if slot.lock().unwrap().is_some() {
+                return;
+            }
+            let mut worker = crate::local_llm::spawn_default();
+            if let Some(w) = worker.as_mut() {
+                let msgs = whimpr_core::cleanup::build_messages(
+                    "warm up",
+                    &whimpr_core::cleanup::CleanupContext::default(),
+                );
+                let t = Instant::now();
+                let _ = w.cleanup(&msgs);
+                eprintln!("[whimpr] local LLM warmed up in {:?}", t.elapsed());
+            }
+            if worker.is_some() {
+                *slot.lock().unwrap() = worker;
+            }
+        });
+    }
+
+    /// Which model files are present (speech recognition, local cleanup LLM).
+    pub fn model_status() -> (bool, bool) {
+        (model_path().exists(), crate::local_llm::model_present())
+    }
+
+    #[derive(Clone, Serialize)]
+    struct ModelProgress {
+        kind: String,
+        done: u64,
+        total: u64,
+    }
+
+    /// Download a model into the support dir with progress events for the Hub
+    /// (`whimpr://model/progress`), then bring the matching engine up live.
+    pub fn download_model(kind: &str) -> Result<(), String> {
+        let (url, name) = match kind {
+            "asr" => (
+                "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+                "ggml-large-v3-turbo-q5_0.bin",
+            ),
+            "llm" => (
+                "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+                "qwen3-4b-instruct-2507-q4_k_m.gguf",
+            ),
+            _ => return Err("unknown model kind".into()),
+        };
+        let dest = support_dir().join("models").join(name);
+        if !dest.exists() {
+            let app = APP.get().cloned();
+            let kind_owned = kind.to_string();
+            let mut last_emit: u64 = 0;
+            whimpr_cleanup::download_file(url, &dest, |done, total| {
+                // Throttle UI updates to roughly every 2 MB (plus the final one).
+                if done.saturating_sub(last_emit) > 2_000_000 || done == total {
+                    last_emit = done;
+                    if let Some(a) = &app {
+                        let _ = a.emit(
+                            "whimpr://model/progress",
+                            ModelProgress { kind: kind_owned.clone(), done, total },
+                        );
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        }
+        match kind {
+            "asr" => load_asr(),
+            "llm" => load_local_llm(),
+            _ => {}
+        }
+        Ok(())
+    }
+
     fn support_dir() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_default();
         PathBuf::from(home).join("Library/Application Support/WhimprFlow")
@@ -2403,25 +2514,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         let _ = CLOCK.set(Instant::now());
 
         // Load the speech-to-text model off the main thread (it takes ~1s).
-        std::thread::spawn(|| {
-            let path = model_path();
-            if !path.exists() {
-                eprintln!("[whimpr] ASR model not found at {}", path.display());
-                return;
-            }
-            match whimpr_asr::WhisperEngine::load(&path) {
-                Ok(engine) => {
-                    // Transcribe a second of silence now so Metal compiles its
-                    // pipelines at startup, not on the user's first dictation.
-                    let t = Instant::now();
-                    let _ = engine.transcribe(&vec![0.0f32; 16_000]);
-                    eprintln!("[whimpr] ASR warmed up in {:?}", t.elapsed());
-                    let _ = ASR.set(Arc::new(engine));
-                    eprintln!("[whimpr] ASR model loaded — ready to transcribe");
-                }
-                Err(e) => eprintln!("[whimpr] ASR model load failed: {e}"),
-            }
-        });
+        load_asr();
 
         // Load settings + dictionary, and build cloud providers from stored keys.
         let settings = whimpr_core::Settings::load(&settings_path());
@@ -2560,8 +2653,8 @@ pub use imp::{
 #[cfg(target_os = "macos")]
 pub use imp::{
     ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
-    dictation_key_down, dictation_key_up, file_transcripts, import_contacts,
-    snippet_suggestions, transcribe_audio_file,
+    dictation_key_down, dictation_key_up, download_model, file_transcripts, import_contacts,
+    model_status, snippet_suggestions, transcribe_audio_file,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -2638,6 +2731,14 @@ pub fn last_dictation() -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 pub fn voice_profile(_force: bool) -> serde_json::Value {
     serde_json::json!({})
+}
+#[cfg(not(target_os = "macos"))]
+pub fn model_status() -> (bool, bool) {
+    (true, true)
+}
+#[cfg(not(target_os = "macos"))]
+pub fn download_model(_kind: &str) -> Result<(), String> {
+    Err("model downloads are macOS-only right now".into())
 }
 
 // Windows uses the real (but unverified) platform layer in `crate::win`.

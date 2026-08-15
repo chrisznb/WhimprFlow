@@ -28,3 +28,4 @@ src-tauri/gen/
 
 # Per-user Claude Code launch config
 .claude/
+CLAUDE.md

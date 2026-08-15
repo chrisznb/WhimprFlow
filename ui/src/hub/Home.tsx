@@ -5,6 +5,7 @@ import { Card, SkeletonRows, useStats } from "./ui";
 import { Icon } from "./icons";
 import { getHistory, type HistoryItem, type StatsSummary } from "./api";
 import { dayKey, dayLabel, fmtCompact, fmtDuration, fmtNum, fmtTimeOfDay, prettyApp, wordsReference } from "./format";
+import { ModelDownload, useModelStatus } from "./models";
 
 const UNLOCK_WORDS = 500;
 
@@ -42,6 +43,41 @@ function KeyCap({ label, dark }: { label: string; dark?: boolean }) {
     >
       {label}
     </span>
+  );
+}
+
+// ── First-launch setup ───────────────────────────────────────────────────────
+function SetupCard({ onDone }: { onDone: () => void }) {
+  return (
+    <Card>
+      <div style={{ display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div
+          style={{
+            width: 42,
+            height: 42,
+            borderRadius: "50%",
+            background: theme.accentSoft,
+            color: theme.accentDeep,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flex: "0 0 auto",
+          }}
+        >
+          <Icon name="mic" size={17} />
+        </div>
+        <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+          <div style={{ fontFamily: font.serif, fontSize: 20, fontWeight: 600, color: theme.textStrong }}>
+            One download and you can talk.
+          </div>
+          <p style={{ fontSize: 13.5, color: theme.textMuted, lineHeight: 1.6, margin: "6px 0 12px" }}>
+            WhimprFlow transcribes on your Mac, nothing leaves it. Grab the speech model once
+            and dictation works offline from then on.
+          </p>
+          <ModelDownload kind="asr" sizeLabel="547 MB" onDone={onDone} />
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -560,6 +596,7 @@ function StatsCard({ stats }: { stats: StatsSummary }) {
 export function Home() {
   const stats = useStats();
   const [history, setHistory] = useState<HistoryItem[] | null>(null);
+  const { status: models, refresh: refreshModels } = useModelStatus();
 
   useEffect(() => {
     let alive = true;
@@ -599,6 +636,7 @@ export function Home() {
 
       <div className="wf-home-grid">
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
+          {models !== null && !models.asr && <SetupCard onDone={refreshModels} />}
           <Banner />
           <HistorySection history={history} />
         </div>

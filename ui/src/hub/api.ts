@@ -106,6 +106,48 @@ export async function setSettings(settings: Settings): Promise<void> {
   }
 }
 
+export interface ModelStatus {
+  asr: boolean;
+  llm: boolean;
+}
+
+export interface ModelProgress {
+  kind: "asr" | "llm";
+  done: number;
+  total: number;
+}
+
+export async function getModelStatus(): Promise<ModelStatus> {
+  try {
+    return await invoke<ModelStatus>("model_status");
+  } catch {
+    // Browser preview: pretend nothing is installed so the setup UI renders.
+    return { asr: false, llm: false };
+  }
+}
+
+/// Resolves when the download finished (or immediately if present).
+/// Returns an error message string, or null on success.
+export async function downloadModel(kind: "asr" | "llm"): Promise<string | null> {
+  try {
+    await invoke<void>("download_model", { kind });
+    return null;
+  } catch (e) {
+    return String(e);
+  }
+}
+
+/// Subscribe to model download progress. Returns an unlisten fn (no-op in the
+/// plain-browser preview).
+export async function onModelProgress(cb: (p: ModelProgress) => void): Promise<() => void> {
+  try {
+    const { listen } = await import("@tauri-apps/api/event");
+    return await listen<ModelProgress>("whimpr://model/progress", (e) => cb(e.payload));
+  } catch {
+    return () => {};
+  }
+}
+
 export async function getStatus(): Promise<Status> {
   try {
     return await invoke<Status>("get_status");
