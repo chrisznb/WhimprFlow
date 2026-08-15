@@ -1,5 +1,6 @@
 import { t } from "../i18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Button, Card, Dot, PageTitle, Segmented } from "./ui";
@@ -171,24 +172,9 @@ export function SettingsPane({
         <SectionTitle sub={t("set.hotkeySub")}>
           {t("set.hotkeyTitle")}
         </SectionTitle>
-        <input
-          type="text"
+        <HotkeyField
           value={settings.dictation_hotkey}
-          placeholder={t("set.hotkeyPh")}
-          onChange={(e) => onChange({ ...settings, dictation_hotkey: e.target.value })}
-          style={{
-            width: "100%",
-            maxWidth: 320,
-            background: theme.cardBgSubtle,
-            border: `1px solid ${theme.border}`,
-            borderRadius: 10,
-            padding: "9px 12px",
-            color: theme.textBody,
-            fontFamily: font.mono,
-            fontSize: 13,
-            outline: "none",
-            boxSizing: "border-box",
-          }}
+          onPick={(v) => onChange({ ...settings, dictation_hotkey: v })}
         />
       </Card>
 
@@ -548,5 +534,204 @@ function ModelsCard() {
         />
       </div>
     </Card>
+  );
+}
+
+// Turn a KeyboardEvent.code into Tauri accelerator syntax, or null if the key
+// isn't something we can register globally.
+function codeToAccel(code: string): string | null {
+  const letter = /^Key([A-Z])$/.exec(code);
+  if (letter) return letter[1];
+  const digit = /^Digit(\d)$/.exec(code);
+  if (digit) return digit[1];
+  if (/^F\d{1,2}$/.test(code)) return code;
+  const map: Record<string, string> = {
+    Space: "Space",
+    Comma: "Comma",
+    Period: "Period",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+  };
+  return map[code] ?? null;
+}
+
+// Fallback when e.code is empty (synthetic events): derive from e.key. Note
+// that on macOS Option+letter changes e.key ("∂"), so e.code stays primary.
+function keyToAccel(k: string): string | null {
+  if (/^[a-zA-Z]$/.test(k)) return k.toUpperCase();
+  if (/^[0-9]$/.test(k)) return k;
+  if (/^F\d{1,2}$/.test(k)) return k;
+  const map: Record<string, string> = {
+    " ": "Space",
+    ",": "Comma",
+    ".": "Period",
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+  };
+  return map[k] ?? null;
+}
+
+// "Ctrl+Alt+D" -> "⌃ ⌥ D" for display.
+function prettyAccel(v: string): string {
+  return v
+    .replace(/CommandOrControl\+|CmdOrCtrl\+/gi, "⌘ ")
+    .replace(/Cmd\+|Command\+/gi, "⌘ ")
+    .replace(/Ctrl\+|Control\+/gi, "⌃ ")
+    .replace(/Alt\+|Option\+/gi, "⌥ ")
+    .replace(/Shift\+/gi, "⇧ ");
+}
+
+/// Click-to-capture hotkey picker: a field that opens a modal which records
+/// the next real key press and stores it as an accelerator.
+function HotkeyField({ value, onPick }: { value: string; onPick: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    setOpen(false);
+    setError(null);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key === "Escape") {
+        close();
+        return;
+      }
+      // Bare modifiers: keep waiting for the real key.
+      if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+      const key = codeToAccel(e.code) ?? keyToAccel(e.key);
+      if (!key) {
+        setError(t("set.hkUnsupported"));
+        return;
+      }
+      const mods = [
+        e.ctrlKey && "Ctrl",
+        e.altKey && "Alt",
+        e.shiftKey && "Shift",
+        e.metaKey && "Cmd",
+      ].filter(Boolean) as string[];
+      // A bare letter/number would swallow normal typing system-wide; only
+      // F-keys may stand alone.
+      if (mods.length === 0 && !/^F\d{1,2}$/.test(key)) {
+        setError(t("set.hkNeedsMod"));
+        return;
+      }
+      onPick([...mods, key].join("+"));
+      close();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onPick]);
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={() => setOpen(true)}
+          className="wf-press"
+          style={{
+            minWidth: 220,
+            textAlign: "left",
+            background: theme.cardBgSubtle,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 10,
+            padding: "9px 12px",
+            color: value ? theme.textStrong : theme.textFaint,
+            fontFamily: font.ui,
+            fontSize: 13.5,
+            fontWeight: value ? 650 : 400,
+            cursor: "pointer",
+          }}
+        >
+          {value ? prettyAccel(value) : t("set.hkClick")}
+        </button>
+        {value && (
+          <Button variant="ghost" size="sm" onClick={() => onPick("")}>
+            {t("set.hkRemove")}
+          </Button>
+        )}
+      </div>
+
+      {open && createPortal(
+        <div
+          onClick={close}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(26,26,26,0.35)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+        >
+          <div
+            className="wf-pop"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: theme.cardBg,
+              borderRadius: 18,
+              padding: "30px 34px",
+              width: 420,
+              maxWidth: "90%",
+              textAlign: "center",
+              boxShadow: "0 8px 40px rgba(26,26,26,0.25)",
+            }}
+          >
+            <div style={{ fontFamily: font.serif, fontSize: 22, fontWeight: 600, color: theme.textStrong }}>
+              {t("set.hkModalTitle")}
+            </div>
+            <div
+              style={{
+                margin: "18px auto 14px",
+                width: 92,
+                height: 56,
+                borderRadius: 12,
+                border: `1.5px dashed ${theme.borderStrong}`,
+                background: theme.cardBgSubtle,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: font.serif,
+                fontSize: 24,
+                color: theme.textFaint,
+              }}
+            >
+              ?
+            </div>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, lineHeight: 1.55 }}>
+              {t("set.hkModalSub")}
+            </div>
+            {error && (
+              <div style={{ fontSize: 12.5, color: "#C0392B", marginTop: 10 }}>{error}</div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 18 }}>
+              <Button variant="ghost" size="sm" onClick={close}>
+                {t("set.hkCancelBtn")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onPick("");
+                  close();
+                }}
+              >
+                {t("set.hkRemove")}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
