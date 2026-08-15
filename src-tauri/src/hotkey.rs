@@ -1941,6 +1941,22 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
     // --- Update check + weekly review -------------------------------------
 
     fn notify(title: &str, body: &str) {
+        // Native notification from the app itself, so a click opens WhimprFlow
+        // (an osascript notification belongs to Script Editor and opens that).
+        if let Some(app) = APP.get() {
+            use tauri_plugin_notification::NotificationExt;
+            if app
+                .notification()
+                .builder()
+                .title(title)
+                .body(body)
+                .show()
+                .is_ok()
+            {
+                return;
+            }
+        }
+        // Fallback for the moments before the app handle exists.
         let script = format!(
             "display notification \"{}\" with title \"{}\"",
             body.replace('"', "'"),
