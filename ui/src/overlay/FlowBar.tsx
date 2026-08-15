@@ -1,4 +1,4 @@
-import { resolveLang, setLang, t } from "../i18n";
+import { getLang, resolveLang, setLang, t } from "../i18n";
 import { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faMicrophone, faStop, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -266,7 +266,7 @@ export function FlowBar() {
       : processing
         ? { w: vertical ? 26 : 140, h: 26 }
         : clipboard
-          ? { w: vertical ? 26 : 210, h: 26 }
+          ? { w: vertical ? 26 : getLang() === "de" ? 244 : 210, h: 26 }
           : { w: vertical ? 26 : 108, h: 24 };
   // Vertical pill (snapped to a side edge): swap the axes.
   const dims = vertical && !micMode ? { w: base.h, h: base.w } : base;

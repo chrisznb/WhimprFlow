@@ -930,6 +930,9 @@ return acted"#,
                 ("recording" | "locked", true) => (56.0, 240.0),
                 ("idle", false) => (76.0, 44.0),
                 ("idle", true) => (44.0, 76.0),
+                // The clipboard notice is the longest pill text (longer still
+                // in German) — give the window room so the edge never clips it.
+                ("clipboard", false) => (256.0, 52.0),
                 (_, false) => (200.0, 52.0),
                 (_, true) => (52.0, 120.0),
             };

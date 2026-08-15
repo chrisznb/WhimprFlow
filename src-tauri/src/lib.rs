@@ -151,11 +151,14 @@ pub(crate) fn overlay_drag_end(app: &tauri::AppHandle) {
 
 pub(crate) fn position_overlay(w: &WebviewWindow) {
     // current_monitor() can be None before the window maps; fall back sensibly.
+    // The monitor the window actually sits on decides the clamp box; using
+    // the primary first pulled anchors on secondary displays back onto the
+    // primary's bounds and clipped the pill at that "edge".
     let monitor = w
-        .primary_monitor()
+        .current_monitor()
         .ok()
         .flatten()
-        .or_else(|| w.current_monitor().ok().flatten())
+        .or_else(|| w.primary_monitor().ok().flatten())
         .or_else(|| w.available_monitors().ok().and_then(|m| m.into_iter().next()));
     let Some(monitor) = monitor else {
         eprintln!("[whimpr] no monitor found — overlay stays at default position");
