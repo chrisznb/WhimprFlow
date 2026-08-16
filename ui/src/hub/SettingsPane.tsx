@@ -6,6 +6,9 @@ import { theme } from "./theme";
 import { Button, Card, Dot, PageTitle, Segmented } from "./ui";
 import { ModelDownload, useModelStatus } from "./models";
 import {
+  getPillPosition,
+  setPillPosition,
+  type PillPosition,
   requestAccessibility,
   requestInputMonitoring,
   requestMicrophone,
@@ -177,6 +180,8 @@ export function SettingsPane({
           onPick={(v) => onChange({ ...settings, dictation_hotkey: v })}
         />
       </Card>
+
+      <PillPositionCard />
 
       <Card style={{ marginBottom: 16 }}>
         <SectionTitle sub={t("set.trSub")}>{t("set.trTitle")}</SectionTitle>
@@ -733,5 +738,90 @@ function HotkeyField({ value, onPick }: { value: string; onPick: (v: string) => 
         document.body
       )}
     </>
+  );
+}
+
+
+/// Mini screen with clickable magnet dots. The bottom-most pair sits on the
+/// screen's true bottom edge (beside the Dock); the row above it is the
+/// regular above-the-Dock line.
+function PillPositionCard() {
+  const [active, setActive] = useState<string>("");
+  useEffect(() => {
+    void getPillPosition().then(setActive);
+  }, []);
+
+  const pick = (pos: PillPosition) => {
+    setActive(pos);
+    void setPillPosition(pos);
+  };
+
+  const DOTS: { pos: PillPosition; label: string; x: string; y: string; vertical?: boolean }[] = [
+    { pos: "top-left", label: t("set.posTopLeft"), x: "8%", y: "12%" },
+    { pos: "top-center", label: t("set.posTopCenter"), x: "50%", y: "12%" },
+    { pos: "top-right", label: t("set.posTopRight"), x: "92%", y: "12%" },
+    { pos: "left", label: t("set.posLeft"), x: "8%", y: "46%", vertical: true },
+    { pos: "right", label: t("set.posRight"), x: "92%", y: "46%", vertical: true },
+    { pos: "bottom-left", label: t("set.posBottomLeft"), x: "8%", y: "66%" },
+    { pos: "bottom-center", label: t("set.posBottomCenter"), x: "50%", y: "66%" },
+    { pos: "bottom-right", label: t("set.posBottomRight"), x: "92%", y: "66%" },
+    { pos: "screen-bottom-left", label: t("set.posScreenBottomLeft"), x: "8%", y: "88%" },
+    { pos: "screen-bottom-right", label: t("set.posScreenBottomRight"), x: "92%", y: "88%" },
+  ];
+
+  return (
+    <Card style={{ marginBottom: 16 }}>
+      <SectionTitle sub={t("set.pillSub")}>{t("set.pillTitle")}</SectionTitle>
+      <div
+        style={{
+          position: "relative",
+          width: 300,
+          maxWidth: "100%",
+          height: 170,
+          borderRadius: 14,
+          border: `1.5px solid ${theme.borderStrong}`,
+          background: theme.cardBgSubtle,
+          overflow: "hidden",
+        }}
+      >
+        {/* hinted Dock */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            bottom: 6,
+            transform: "translateX(-50%)",
+            width: 110,
+            height: 12,
+            borderRadius: 999,
+            background: theme.track,
+          }}
+        />
+        {DOTS.map((d) => {
+          const selected = active === d.pos;
+          return (
+            <button
+              key={d.pos}
+              title={d.label}
+              onClick={() => pick(d.pos)}
+              className="wf-press"
+              style={{
+                position: "absolute",
+                left: d.x,
+                top: d.y,
+                transform: "translate(-50%, -50%)",
+                width: d.vertical ? 10 : 22,
+                height: d.vertical ? 22 : 10,
+                borderRadius: 999,
+                border: "none",
+                cursor: "pointer",
+                background: selected ? theme.accent : theme.borderStrong,
+                boxShadow: selected ? `0 0 0 3px ${theme.accentSoft}` : "none",
+              }}
+            />
+          );
+        })}
+      </div>
+    </Card>
   );
 }

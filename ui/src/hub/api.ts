@@ -151,6 +151,28 @@ export async function onModelProgress(cb: (p: ModelProgress) => void): Promise<(
   }
 }
 
+export type PillPosition =
+  | "top-left" | "top-center" | "top-right"
+  | "left" | "right"
+  | "bottom-left" | "bottom-center" | "bottom-right"
+  | "screen-bottom-left" | "screen-bottom-right";
+
+export async function getPillPosition(): Promise<string> {
+  try {
+    return await invoke<string>("get_pill_position");
+  } catch {
+    return "bottom-center";
+  }
+}
+
+export async function setPillPosition(position: PillPosition): Promise<void> {
+  try {
+    await invoke<void>("set_pill_position", { position });
+  } catch {
+    /* browser preview */
+  }
+}
+
 export async function getStatus(): Promise<Status> {
   try {
     return await invoke<Status>("get_status");

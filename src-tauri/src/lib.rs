@@ -58,6 +58,9 @@ pub(crate) fn load_overlay_anchor() {
             }
             let vertical = v.get("vertical").and_then(|b| b.as_bool()).unwrap_or(false);
             OVERLAY_VERTICAL.store(vertical, std::sync::atomic::Ordering::Relaxed);
+            if let Some(p) = v.get("preset").and_then(|p| p.as_str()) {
+                *PILL_PRESET.lock().unwrap() = p.to_string();
+            }
         }
     }
 }
@@ -77,8 +80,66 @@ pub(crate) fn overlay_drag_move(app: &tauri::AppHandle, x: f64, y: f64) {
     }
 }
 
-/// Drag finished: snap to the nearest magnet position (edge midpoints and
-/// corners of the work area) and persist that anchor (center-x, bottom-y).
+/// Name of the pill's current magnet position (for the Settings grid).
+static PILL_PRESET: Mutex<String> = Mutex::new(String::new());
+
+/// The magnet positions as (name, center-x, bottom-y, vertical), computed for
+/// one monitor. Everything uses the work area (above the Dock, below the menu
+/// bar) — plus two extra "screen-bottom" corners that hug the true monitor
+/// bottom edge, beside the Dock.
+fn pill_anchor_candidates(m: &tauri::Monitor) -> Vec<(&'static str, f64, f64, bool)> {
+    let wa = m.work_area();
+    let scale = m.scale_factor();
+    let inset = 12.0 * scale;
+    let (wx, wy) = (wa.position.x as f64, wa.position.y as f64);
+    let (ww, wh) = (wa.size.width as f64, wa.size.height as f64);
+    let mpos = m.position();
+    let msize = m.size();
+    let screen_bottom = mpos.y as f64 + msize.height as f64 - inset;
+    // Idle pill sizes in physical px (horizontal 76x44, vertical 44x76).
+    let (pw, ph) = (76.0 * scale, 44.0 * scale);
+    let (vw, vh) = (44.0 * scale, 76.0 * scale);
+    let left_x = wx + inset + pw / 2.0;
+    let mid_x = wx + ww / 2.0;
+    let right_x = wx + ww - inset - pw / 2.0;
+    vec![
+        ("top-left", left_x, wy + inset + ph, false),
+        ("top-center", mid_x, wy + inset + ph, false),
+        ("top-right", right_x, wy + inset + ph, false),
+        ("left", wx + inset + vw / 2.0, wy + wh / 2.0 + vh / 2.0, true),
+        ("right", wx + ww - inset - vw / 2.0, wy + wh / 2.0 + vh / 2.0, true),
+        ("bottom-left", left_x, wy + wh - inset, false),
+        ("bottom-center", mid_x, wy + wh - inset, false),
+        ("bottom-right", right_x, wy + wh - inset, false),
+        // Extra pair: the true screen bottom, beside the Dock.
+        ("screen-bottom-left", left_x, screen_bottom, false),
+        ("screen-bottom-right", right_x, screen_bottom, false),
+    ]
+}
+
+/// Store + persist an anchor and move/resize the overlay accordingly.
+fn apply_pill_anchor(w: &WebviewWindow, name: &str, anchor: (f64, f64), vertical: bool) {
+    OVERLAY_VERTICAL.store(vertical, std::sync::atomic::Ordering::Relaxed);
+    *OVERLAY_ANCHOR.lock().unwrap() = Some(anchor);
+    *PILL_PRESET.lock().unwrap() = name.to_string();
+    let json = format!(
+        "{{\n  \"center_x\": {},\n  \"bottom_y\": {},\n  \"vertical\": {},\n  \"preset\": \"{}\"\n}}\n",
+        anchor.0, anchor.1, vertical, name
+    );
+    let _ = std::fs::write(anchor_path(), json);
+    // Snap the window to the chosen magnet with the right orientation size.
+    let (lw, lh) = if vertical { (44.0, 76.0) } else { (76.0, 44.0) };
+    let _ = w.set_size(tauri::LogicalSize::new(lw, lh));
+    // Tell the pill about its orientation right away (state stays untouched).
+    let _ = w.emit("whimpr://flowbar/orient", vertical);
+    position_overlay(w);
+    eprintln!(
+        "[whimpr] pill anchor: {name} ({:.0},{:.0}) vertical={vertical}",
+        anchor.0, anchor.1
+    );
+}
+
+/// Drag finished: snap to the nearest magnet position and persist it.
 pub(crate) fn overlay_drag_end(app: &tauri::AppHandle) {
     let Some(w) = app.get_webview_window(OVERLAY_LABEL) else {
         return;
@@ -96,57 +157,17 @@ pub(crate) fn overlay_drag_end(app: &tauri::AppHandle) {
         .ok()
         .flatten()
         .or_else(|| w.primary_monitor().ok().flatten());
-    let anchor = if let Some(m) = monitor {
-        let wa = m.work_area();
-        let scale = m.scale_factor();
-        let inset = 12.0 * scale;
-        let (wx, wy) = (wa.position.x as f64, wa.position.y as f64);
-        let (ww, wh) = (wa.size.width as f64, wa.size.height as f64);
-        let (pw, ph) = (size.width as f64, size.height as f64);
-        // Anchor candidates as (center-x, bottom-y).
-        let xs = [wx + inset + pw / 2.0, wx + ww / 2.0, wx + ww - inset - pw / 2.0];
-        let ys = [wy + inset + ph, wy + wh / 2.0 + ph / 2.0, wy + wh - inset];
-        let mut best = current;
-        let mut best_d = f64::MAX;
-        let mut best_vertical = false;
-        for (xi, &cx) in xs.iter().enumerate() {
-            for (yi, &by) in ys.iter().enumerate() {
-                // Skip dead center of the screen — not a useful pill spot.
-                if xi == 1 && yi == 1 {
-                    continue;
-                }
-                let d = (cx - current.0).powi(2) + (by - current.1).powi(2);
-                if d < best_d {
-                    best_d = d;
-                    best = (cx, by);
-                    // Left/right edge midpoints flip the pill vertical.
-                    best_vertical = (xi == 0 || xi == 2) && yi == 1;
-                }
-            }
+    let Some(m) = monitor else { return };
+    let mut best: (&'static str, f64, f64, bool) = ("bottom-center", current.0, current.1, false);
+    let mut best_d = f64::MAX;
+    for cand in pill_anchor_candidates(&m) {
+        let d = (cand.1 - current.0).powi(2) + (cand.2 - current.1).powi(2);
+        if d < best_d {
+            best_d = d;
+            best = cand;
         }
-        OVERLAY_VERTICAL.store(best_vertical, std::sync::atomic::Ordering::Relaxed);
-        best
-    } else {
-        current
-    };
-
-    *OVERLAY_ANCHOR.lock().unwrap() = Some(anchor);
-    let vertical = overlay_vertical();
-    let json = format!(
-        "{{\n  \"center_x\": {},\n  \"bottom_y\": {},\n  \"vertical\": {}\n}}\n",
-        anchor.0, anchor.1, vertical
-    );
-    let _ = std::fs::write(anchor_path(), json);
-    // Snap the window to the chosen magnet with the right orientation size.
-    let (lw, lh) = if vertical { (44.0, 76.0) } else { (76.0, 44.0) };
-    let _ = w.set_size(tauri::LogicalSize::new(lw, lh));
-    // Tell the pill about its orientation right away (state stays untouched).
-    let _ = w.emit("whimpr://flowbar/orient", vertical);
-    position_overlay(&w);
-    eprintln!(
-        "[whimpr] pill anchor snapped: ({:.0},{:.0}) vertical={vertical}",
-        anchor.0, anchor.1
-    );
+    }
+    apply_pill_anchor(&w, best.0, (best.1, best.2), best.3);
 }
 
 pub(crate) fn position_overlay(w: &WebviewWindow) {
@@ -431,6 +452,29 @@ fn get_orientation() -> bool {
     overlay_vertical()
 }
 
+/// Current pill magnet name for the Settings position grid ("" = default).
+#[tauri::command]
+fn get_pill_position() -> String {
+    PILL_PRESET.lock().unwrap().clone()
+}
+
+/// Move the pill to a named magnet position (same set the drag-snap uses).
+#[tauri::command]
+fn set_pill_position(app: tauri::AppHandle, position: String) {
+    let Some(w) = app.get_webview_window(OVERLAY_LABEL) else {
+        return;
+    };
+    let monitor = w
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| w.primary_monitor().ok().flatten());
+    let Some(m) = monitor else { return };
+    if let Some(c) = pill_anchor_candidates(&m).into_iter().find(|c| c.0 == position) {
+        apply_pill_anchor(&w, c.0, (c.1, c.2), c.3);
+    }
+}
+
 #[tauri::command]
 fn get_snippets() -> Vec<whimpr_core::Snippet> {
     hotkey::snippets_entries()
@@ -698,6 +742,8 @@ pub fn run() {
             get_settings,
             set_settings,
             get_orientation,
+            get_pill_position,
+            set_pill_position,
             get_voice_profile,
             assistant_chat,
             import_contacts,
