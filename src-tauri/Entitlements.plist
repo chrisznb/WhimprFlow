@@ -12,6 +12,9 @@
     <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
+    <!-- Pause/resume Spotify and Music via AppleScript under hardened runtime. -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
     <!-- Not sandboxed: Accessibility + CGEventTap require it off. -->
 </dict>
 </plist>

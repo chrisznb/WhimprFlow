@@ -4,5 +4,9 @@
 <dict>
     <key>NSMicrophoneUsageDescription</key>
     <string>WhimprFlow uses your microphone to transcribe what you say into text.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>WhimprFlow pauses your music player while you dictate and resumes it afterwards.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>WhimprFlow can import your contacts' names into its dictionary so they are always spelled correctly.</string>
 </dict>
 </plist>
