@@ -4,6 +4,12 @@ A **local-first voice dictation app for macOS**. Tap a key, speak, and clean tex
 
 This is a heavily extended fork of [Blueturboguy07/WhimprFlow](https://github.com/Blueturboguy07/WhimprFlow) (MIT). Not affiliated with, endorsed by, or connected to Wispr Flow or any other product.
 
+<p align="center">
+  <img src="docs/home-en.png" width="49%" alt="WhimprFlow hub in English" />
+  <img src="docs/home-de.png" width="49%" alt="WhimprFlow hub in German" />
+</p>
+<p align="center"><i>The whole app ships in English and German and follows your macOS language.</i></p>
+
 ## What it does
 
 - **On-device ASR**: Whisper (whisper.cpp, Metal), multilingual with auto language detection. German and English work great, including mixed use.
