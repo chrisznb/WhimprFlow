@@ -731,7 +731,8 @@ return acted"#,
         // mangles the literal cue words. The model sees `raw` (with markers); the gate
         // and any raw fallback use `raw_out` (markers restored to real breaks) so we
         // never paste a "[[NL]]" token or lose an explicit break.
-        let raw_norm = whimpr_core::cleanup::pre_normalize_layout(raw);
+        let raw_norm =
+            whimpr_core::cleanup::strip_hesitations(&whimpr_core::cleanup::pre_normalize_layout(raw));
         let raw = raw_norm.as_str();
         let raw_out = whimpr_core::cleanup::post_process(&raw_norm);
         let vocab = DICTIONARY

@@ -229,6 +229,57 @@ const LAYOUT_CUES_POST: &[(&str, &str)] = &[
 /// paragraph", ...) into break sentinels in the RAW transcript *before* it reaches
 /// the model, so the user's requested breaks are guaranteed to survive. Correction
 /// cues are intentionally excluded — they stay the model's context-sensitive job.
+/// True for vocal hesitations that never carry meaning in German speech
+/// ("äh", "ähm", "ähhh", "öhm", "ehm"). English "um"/"uh" are NOT handled here:
+/// "um" is a German preposition, so those stay LLM territory.
+fn is_hesitation(core: &str) -> bool {
+    let c = core.to_lowercase();
+    if c.len() < 2 || c == "eh" || c.starts_with('m') {
+        return false;
+    }
+    let only_hesitation_chars = c.chars().all(|ch| matches!(ch, '\u{e4}' | '\u{f6}' | 'e' | 'h' | 'm'));
+    only_hesitation_chars && (c.contains('\u{e4}') || c.contains('\u{f6}') || c == "ehm" || c == "ehmm")
+}
+
+/// Deterministically remove unambiguous vocal hesitations before the LLM pass.
+/// The LLM still handles context-dependent fillers; this guarantees the easy
+/// ones ("Und, ähm, ja.") never survive, no matter how cautious the model is.
+pub fn strip_hesitations(text: &str) -> String {
+    let mut lines: Vec<String> = Vec::new();
+    for line in text.split('\n') {
+        let mut words: Vec<String> = Vec::new();
+        for tok in line.split_whitespace() {
+            let core = tok.trim_matches(|ch: char| !ch.is_alphanumeric());
+            if !core.is_empty() && is_hesitation(core) {
+                // Keep sentence-final punctuation by gluing it to the previous
+                // word, so dropping "ähm." never merges two sentences.
+                let trail: String = tok
+                    .chars()
+                    .rev()
+                    .take_while(|ch| ".!?".contains(*ch))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                if !trail.is_empty() {
+                    if let Some(prev) = words.last_mut() {
+                        while prev.ends_with([',', ';', ':']) {
+                            prev.pop();
+                        }
+                        if !prev.ends_with(['.', '!', '?']) {
+                            prev.push_str(&trail);
+                        }
+                    }
+                }
+                continue;
+            }
+            words.push(tok.to_string());
+        }
+        lines.push(words.join(" "));
+    }
+    lines.join("\n")
+}
+
 pub fn pre_normalize_layout(raw: &str) -> String {
     replace_cues(raw, LAYOUT_CUES_PRE)
 }
@@ -386,5 +437,38 @@ mod tests {
         };
         let msg = assemble_user_message("hello", &ctx);
         assert!(!msg.contains("WINDOW_CONTEXT"), "short/placeholder context is ignored");
+    }
+}
+
+#[cfg(test)]
+mod hesitation_tests {
+    use super::strip_hesitations;
+
+    #[test]
+    fn drops_comma_wrapped_hesitation() {
+        assert_eq!(strip_hesitations("Und, \u{e4}hm, ja."), "Und, ja.");
+    }
+
+    #[test]
+    fn drops_mid_sentence_hesitation() {
+        assert_eq!(strip_hesitations("Das ist \u{e4}h gut so."), "Das ist gut so.");
+    }
+
+    #[test]
+    fn keeps_sentence_boundary_when_hesitation_ends_sentence() {
+        assert_eq!(strip_hesitations("Das war gut, \u{e4}hm. Dann los."), "Das war gut. Dann los.");
+    }
+
+    #[test]
+    fn keeps_real_words() {
+        assert_eq!(
+            strip_hesitations("Wir treffen uns um eh drei, das ist mehr als genug."),
+            "Wir treffen uns um eh drei, das ist mehr als genug."
+        );
+    }
+
+    #[test]
+    fn drops_long_variants() {
+        assert_eq!(strip_hesitations("\u{c4}hhh also \u{f6}hm gut."), "also gut.");
     }
 }
