@@ -256,6 +256,22 @@ return acted"#,
         )
     }
 
+    /// Append each raw/clean pair to cleanup-debug.log (stays on this Mac, like
+    /// the history) so cleanup quality is tunable against real dictations.
+    /// Truncates once the log grows past ~500 KB.
+    fn log_cleanup_pair(raw: &str, clean: &str) {
+        use std::io::Write;
+        let path = support_dir().join("cleanup-debug.log");
+        if let Ok(meta) = std::fs::metadata(&path) {
+            if meta.len() > 500_000 {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = writeln!(f, "RAW: {raw}\nOUT: {clean}\n---");
+        }
+    }
+
     /// Append one line to music-debug.log so pause/resume behavior is
     /// diagnosable for an app launched via Finder (stderr goes nowhere).
     fn music_log(line: &str) {
@@ -1111,6 +1127,7 @@ return acted"#,
                             if text != raw {
                                 eprintln!("[whimpr] CLEANED:   \"{}\"", text);
                             }
+                            log_cleanup_pair(&raw, &text);
                             // Smart spacing: pasting right behind existing text
                             // (caret at a word/punctuation) gets a leading space.
                             if let Some(ctx) = WINDOW_CTX.get().and_then(|m| m.lock().unwrap().clone()) {

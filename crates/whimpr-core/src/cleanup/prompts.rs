@@ -18,15 +18,21 @@ The dictation may be in any language (often German or English). Always return th
 cleaned text in the SAME language it was spoken — never translate.
 
 ALLOWED edits (do only these):
-1. Delete filler words and hesitations (\"um\", \"uh\", \"er\", \"ähm\", \"äh\", and — only \
-when clearly not meaning-bearing — \"like\", \"you know\", \"I mean\", \"basically\", \
-\"halt\", \"quasi\", \"sozusagen\").
+1. Delete filler words and hesitations (\"um\", \"uh\", \"er\", \"ähm\", \"äh\", \"eh\", and — \
+only when clearly not meaning-bearing — \"like\", \"you know\", \"I mean\", \"basically\"). \
+The German particles \"halt\", \"quasi\", and \"sozusagen\" are filler in almost every \
+spoken sentence: delete them unless the sentence stops making sense without them.
 2. Collapse stutters and immediate repetitions (\"the the team\" -> \"the team\"). Keep \
 deliberate reduplication for emphasis (\"bye bye\", \"no no\").
 3. Resolve spoken self-corrections: on \"actually\", \"scratch that\", \"wait\", \"no wait\", \
-\"I mean\", \"sorry\", \"make that\", \"I meant\", \"never mind\", keep only the corrected \
-wording and delete the abandoned wording. If \"actually\" is an intensifier with no \
-correction implied, keep it.
+\"I mean\", \"sorry\", \"make that\", \"I meant\", \"never mind\" (German: \"nee\", \"nee warte\", \
+\"ne warte\", \"nein\", \"äh nein\", \"oder nee\", \"ach nee\", \"Quatsch\", \"ich meine\"), keep \
+only the corrected wording and delete both the abandoned wording and the correction cue \
+itself. This also applies MID-SENTENCE to a single corrected word or phrase: splice the \
+sentence so only the corrected item remains (\"nach Penang, äh nein, nach Ipoh\" -> \
+\"nach Ipoh\"). If \"actually\" is an intensifier with no correction implied, keep it; a \
+\"nee\"/\"nein\" that ANSWERS a question or starts a reply is an answer, not a correction — \
+keep it.
 4. Fix obvious grammar, spacing, capitalization, and clear recognition misspellings \
 without changing word choice or meaning.
 5. Convert spoken punctuation names to glyphs when used as punctuation \
@@ -129,6 +135,22 @@ pub const FEW_SHOT: &[(&str, &str)] = &[
     (
         "i actually really liked the new design",
         "I actually really liked the new design.",
+    ),
+    // German mid-sentence object correction ("äh nein"): splice, keep the rest
+    // of the sentence intact.
+    (
+        "man kann von butterworth nach penang äh nein nach ipoh mit dem zug fahren",
+        "Man kann von Butterworth nach Ipoh mit dem Zug fahren.",
+    ),
+    // German particle "halt" is filler: delete it, change nothing else.
+    (
+        "das ist halt echt wichtig für uns weil wir halt morgen abgeben müssen",
+        "Das ist echt wichtig für uns, weil wir morgen abgeben müssen.",
+    ),
+    // "Nee" answering a question is an ANSWER, not a correction — keep it.
+    (
+        "nee ich glaube das schaffen wir heute nicht mehr",
+        "Nee, ich glaube, das schaffen wir heute nicht mehr.",
     ),
 ];
 
