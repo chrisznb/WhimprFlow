@@ -224,6 +224,11 @@ const en: Record<string, string> = {
   "tr.copy": "Copy",
   "tr.toScratchpad": "Add to Scratchpad",
   "tr.previous": "Previous transcriptions",
+  "tr.dictNote": "Your dictionary spellings are applied automatically.",
+  "tr.cleanup": "Clean up",
+  "tr.cleaningUp": "Cleaning up…",
+  "tr.cleaned": "Cleaned up",
+  "tr.undo": "Undo",
 
   // Help
   "hp.title": "Help",
@@ -528,6 +533,11 @@ const de: Record<string, string> = {
   "tr.copy": "Kopieren",
   "tr.toScratchpad": "In den Notizblock",
   "tr.previous": "Frühere Transkriptionen",
+  "tr.dictNote": "Schreibweisen aus deinem Wörterbuch werden automatisch angewendet.",
+  "tr.cleanup": "Aufräumen",
+  "tr.cleaningUp": "Räume auf…",
+  "tr.cleaned": "Aufgeräumt",
+  "tr.undo": "Rückgängig",
 
   "hp.title": "Hilfe",
   "hp.sub": "Ein paar Tipps, um alles aus WhimprFlow herauszuholen.",

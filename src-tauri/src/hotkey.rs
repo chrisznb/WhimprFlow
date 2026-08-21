@@ -720,6 +720,117 @@ return acted"#,
         level.modifier()
     }
 
+    /// Send one chunk through the configured cleanup provider, falling back to the
+    /// on-device worker when a cloud key can't be read. `None` means "no provider
+    /// available" (or Raw mode), which callers treat as "keep the text as is".
+    fn run_cleanup_providers(
+        raw: &str,
+        ctx: &CleanupContext,
+        mode: CleanupMode,
+    ) -> Option<anyhow::Result<String>> {
+        // System prompt + few-shot demonstration turns + the transcript, so the
+        // on-device model actually produces newlines/lists and resolves
+        // self-corrections instead of just being told to.
+        let run_local = || -> Option<anyhow::Result<String>> {
+            LOCAL.get().and_then(|m| {
+                m.lock().unwrap().as_mut().map(|w| {
+                    let messages = whimpr_core::cleanup::build_messages(raw, ctx);
+                    w.cleanup(&messages)
+                })
+            })
+        };
+        match mode {
+            CleanupMode::OpenAi => OPENAI
+                .get()
+                .and_then(|m| m.lock().unwrap().as_ref().map(|p| p.cleanup(raw, ctx)))
+                .or_else(run_local),
+            CleanupMode::Anthropic => ANTHROPIC
+                .get()
+                .and_then(|m| m.lock().unwrap().as_ref().map(|p| p.cleanup(raw, ctx)))
+                .or_else(run_local),
+            CleanupMode::Local => run_local(),
+            CleanupMode::Raw => None,
+        }
+    }
+
+    /// Split text into chunks of at most `max_chars`, breaking on paragraph and
+    /// then sentence boundaries so a chunk never ends mid-sentence.
+    fn chunk_text(text: &str, max_chars: usize) -> Vec<String> {
+        let mut chunks: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        for para in text.split("\n\n") {
+            for sentence in split_sentences(para) {
+                if !cur.is_empty() && cur.chars().count() + sentence.chars().count() > max_chars {
+                    chunks.push(std::mem::take(&mut cur));
+                }
+                cur.push_str(&sentence);
+            }
+            if !cur.is_empty() {
+                cur.push_str("\n\n");
+            }
+        }
+        let last = cur.trim_end().to_string();
+        if !last.is_empty() {
+            chunks.push(last);
+        }
+        chunks
+    }
+
+    /// Split on sentence enders, keeping the punctuation and trailing space.
+    fn split_sentences(para: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut cur = String::new();
+        for ch in para.chars() {
+            cur.push(ch);
+            if matches!(ch, '.' | '!' | '?') {
+                out.push(std::mem::take(&mut cur));
+            }
+        }
+        if !cur.trim().is_empty() {
+            out.push(cur);
+        }
+        out
+    }
+
+    /// Clean arbitrary text on request (the Transcribe pane's cleanup button):
+    /// the same engine and level the user configured, but with no paste target,
+    /// no app style, and no window context — and chunked so long transcripts do
+    /// not get truncated by the model. Returns the input unchanged when cleanup
+    /// is off or no provider is available.
+    pub fn cleanup_text_on_demand(text: &str) -> String {
+        let settings = current_settings();
+        let level = settings.cleanup_level;
+        if matches!(settings.cleanup_mode, CleanupMode::Raw) || level.bypasses_llm() {
+            return text.to_string();
+        }
+        let mut out: Vec<String> = Vec::new();
+        for chunk in chunk_text(text, 1200) {
+            let vocab = DICTIONARY
+                .get()
+                .map(|d| d.lock().unwrap().prefilter(&chunk, 15))
+                .unwrap_or_default();
+            let ctx = CleanupContext { level, vocab, ..Default::default() };
+            let cleaned = match run_cleanup_providers(&chunk, &ctx, settings.cleanup_mode) {
+                Some(Ok(c)) => {
+                    let c = whimpr_core::cleanup::post_process(&c);
+                    if whimpr_core::cleanup::evaluate_gates(&chunk, &c, level).passed() {
+                        c
+                    } else {
+                        eprintln!("[whimpr] on-demand cleanup gate rejected a chunk — keeping it raw");
+                        chunk.clone()
+                    }
+                }
+                Some(Err(e)) => {
+                    eprintln!("[whimpr] on-demand cleanup failed ({e}) — keeping the chunk raw");
+                    chunk.clone()
+                }
+                None => chunk.clone(),
+            };
+            out.push(cleaned);
+        }
+        out.join("\n\n")
+    }
+
     fn clean_transcript_inner(raw: &str, translate_to: Option<String>) -> String {
         let settings = current_settings();
         let level = settings.cleanup_level;
@@ -772,32 +883,7 @@ return acted"#,
             translate_to,
             ..Default::default()
         };
-        // Run the on-device model with the same prompt + per-app formatting.
-        let run_local = || -> Option<anyhow::Result<String>> {
-            LOCAL.get().and_then(|m| {
-                m.lock().unwrap().as_mut().map(|w| {
-                    // System prompt + few-shot demonstration turns + the transcript,
-                    // so the on-device model actually produces newlines/lists and
-                    // resolves self-corrections instead of just being told to.
-                    let messages = whimpr_core::cleanup::build_messages(raw, &ctx);
-                    w.cleanup(&messages)
-                })
-            })
-        };
-        // Selected provider, falling back to local when a cloud key can't be read
-        // (so cleanup still runs) — and Local mode uses the worker directly.
-        let result: Option<anyhow::Result<String>> = match settings.cleanup_mode {
-            CleanupMode::OpenAi => OPENAI
-                .get()
-                .and_then(|m| m.lock().unwrap().as_ref().map(|p| p.cleanup(raw, &ctx)))
-                .or_else(run_local),
-            CleanupMode::Anthropic => ANTHROPIC
-                .get()
-                .and_then(|m| m.lock().unwrap().as_ref().map(|p| p.cleanup(raw, &ctx)))
-                .or_else(run_local),
-            CleanupMode::Local => run_local(),
-            CleanupMode::Raw => None,
-        };
+        let result = run_cleanup_providers(raw, &ctx, settings.cleanup_mode);
         match result {
             Some(Ok(cleaned)) => {
                 // Deterministic safety net: convert any leftover spoken layout cue the
@@ -1493,6 +1579,7 @@ return acted"#,
                             t0.elapsed(),
                             t.len()
                         );
+                        let t = apply_dictionary_spellings(&t);
                         save_file_transcript(
                             src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
                             &t,
@@ -1516,11 +1603,21 @@ return acted"#,
             t0.elapsed(),
             t.text.len()
         );
+        let text = apply_dictionary_spellings(&t.text);
         save_file_transcript(
             src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
-            &t.text,
+            &text,
         );
-        Ok(t.text)
+        Ok(text)
+    }
+
+    /// Fix known mishears and casing from the user's dictionary. Deterministic and
+    /// model-free, so it is safe to run on a whole file transcript.
+    fn apply_dictionary_spellings(text: &str) -> String {
+        DICTIONARY
+            .get()
+            .map(|d| d.lock().unwrap().apply_spellings(text))
+            .unwrap_or_else(|| text.to_string())
     }
 
     // --- In-app assistant ("Ask Whimpr") ----------------------------------
@@ -2728,8 +2825,8 @@ pub use imp::{
 #[cfg(target_os = "macos")]
 pub use imp::{
     ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
-    dictation_key_down, dictation_key_up, download_model, file_transcripts, import_contacts,
-    model_status, snippet_suggestions, transcribe_audio_file,
+    cleanup_text_on_demand, dictation_key_down, dictation_key_up, download_model, file_transcripts,
+    import_contacts, model_status, snippet_suggestions, transcribe_audio_file,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -2806,6 +2903,10 @@ pub fn last_dictation() -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 pub fn voice_profile(_force: bool) -> serde_json::Value {
     serde_json::json!({})
+}
+#[cfg(not(target_os = "macos"))]
+pub fn cleanup_text_on_demand(text: &str) -> String {
+    text.to_string()
 }
 #[cfg(not(target_os = "macos"))]
 pub fn model_status() -> (bool, bool) {

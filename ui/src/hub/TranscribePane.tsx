@@ -5,6 +5,7 @@ import { theme } from "./theme";
 import { Button, Card, PageTitle, Skeleton, WaveLoader } from "./ui";
 import { Icon } from "./icons";
 import {
+  cleanupText,
   chooseAudioFile,
   getFileTranscripts,
   getScratchpad,
@@ -19,6 +20,10 @@ export function TranscribePane() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [past, setPast] = useState<FileTranscript[]>([]);
+  // Cleanup is opt-in here: the transcript stays verbatim (dictionary spellings
+  // aside) until the user asks for it, and the raw version stays recoverable.
+  const [cleaning, setCleaning] = useState(false);
+  const [beforeCleanup, setBeforeCleanup] = useState<string | null>(null);
 
   const loadPast = () => void getFileTranscripts().then(setPast);
   useEffect(loadPast, []);
@@ -27,6 +32,7 @@ export function TranscribePane() {
     setBusy(path.split("/").pop() ?? path);
     setError(null);
     setResult("");
+    setBeforeCleanup(null);
     const res = await transcribeFile(path);
     if ("text" in res) {
       setResult(res.text);
@@ -99,8 +105,11 @@ export function TranscribePane() {
             <div style={{ fontSize: 14.5, fontWeight: 600, color: theme.textStrong }}>
               {t("tr.drop")}
             </div>
-            <div style={{ fontSize: 12.5, color: theme.textMuted, margin: "6px 0 14px" }}>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, margin: "6px 0 4px" }}>
               {t("tr.formats")}
+            </div>
+            <div style={{ fontSize: 12, color: theme.textFaint, margin: "0 0 14px" }}>
+              {t("tr.dictNote")}
             </div>
             <Button
               onClick={() =>
@@ -134,6 +143,36 @@ export function TranscribePane() {
             <div style={{ fontSize: 14, fontWeight: 650, color: theme.textStrong }}>{t("tr.transcript")}</div>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {copied && <span style={{ fontSize: 12.5, color: theme.accent }}>{t("tr.copied")}</span>}
+              {beforeCleanup === null ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    const raw = result;
+                    setCleaning(true);
+                    void cleanupText(raw).then((c) => {
+                      setCleaning(false);
+                      if (c && c !== raw) {
+                        setBeforeCleanup(raw);
+                        setResult(c);
+                      }
+                    });
+                  }}
+                >
+                  {cleaning ? t("tr.cleaningUp") : t("tr.cleanup")}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setResult(beforeCleanup);
+                    setBeforeCleanup(null);
+                  }}
+                >
+                  {t("tr.undo")}
+                </Button>
+              )}
               <Button size="sm" variant="ghost" onClick={copy}>
                 {t("tr.copy")}
               </Button>
@@ -181,6 +220,7 @@ export function TranscribePane() {
               onClick={() => {
                 setResult(ft.text);
                 setError(null);
+                setBeforeCleanup(null);
               }}
               style={{
                 display: "flex",

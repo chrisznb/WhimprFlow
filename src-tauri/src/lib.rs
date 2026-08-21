@@ -371,6 +371,15 @@ async fn transcribe_file(path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Clean arbitrary text on request (Transcribe pane button). Heavy work runs off
+/// the main thread so the UI stays responsive on long transcripts.
+#[tauri::command]
+async fn cleanup_text(text: String) -> String {
+    tauri::async_runtime::spawn_blocking(move || hotkey::cleanup_text_on_demand(&text))
+        .await
+        .unwrap_or_else(|_| String::new())
+}
+
 #[derive(serde::Serialize)]
 struct ModelStatusDto {
     asr: bool,
@@ -751,6 +760,7 @@ pub fn run() {
             transcribe_file,
             model_status,
             download_model,
+            cleanup_text,
             choose_audio_file,
             get_file_transcripts,
             get_snippets,

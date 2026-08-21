@@ -67,7 +67,7 @@ impl SnippetStore {
 }
 
 /// Boundary-checked, case-insensitive whole-phrase replacement.
-fn replace_phrase(input: &str, phrase: &str, replacement: &str) -> String {
+pub(crate) fn replace_phrase(input: &str, phrase: &str, replacement: &str) -> String {
     if phrase.is_empty() {
         return input.to_string();
     }

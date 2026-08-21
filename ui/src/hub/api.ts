@@ -173,6 +173,16 @@ export async function setPillPosition(position: PillPosition): Promise<void> {
   }
 }
 
+/// Run the configured cleanup engine over arbitrary text (Transcribe pane).
+/// Returns the input unchanged when cleanup is off or unavailable.
+export async function cleanupText(text: string): Promise<string> {
+  try {
+    return await invoke<string>("cleanup_text", { text });
+  } catch {
+    return text;
+  }
+}
+
 export async function getStatus(): Promise<Status> {
   try {
     return await invoke<Status>("get_status");

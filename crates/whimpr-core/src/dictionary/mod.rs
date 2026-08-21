@@ -84,6 +84,35 @@ impl DictionaryStore {
         self.entries.len() != before
     }
 
+    /// Apply the dictionary as a pure spelling pass, with no model involved:
+    /// every known mishear becomes the authoritative spelling, and the spelling
+    /// itself is normalized to its stored casing ("baulyo" -> "Baulyo"). Matches
+    /// are exact, case-insensitive, and word-boundary checked — never fuzzy, so
+    /// this can run unattended on a whole file transcript without inventing
+    /// corrections. Longer mishears are applied first, so a multi-word mishear
+    /// ("charge bee") wins over any shorter one it contains.
+    pub fn apply_spellings(&self, text: &str) -> String {
+        let mut pairs: Vec<(&str, &str)> = Vec::new();
+        for e in &self.entries {
+            for m in &e.mishears {
+                if !m.trim().is_empty() {
+                    pairs.push((m.as_str(), e.correct.as_str()));
+                }
+            }
+        }
+        // Longest needle first so "charge bee" is consumed before "bee".
+        pairs.sort_by_key(|(m, _)| std::cmp::Reverse(m.chars().count()));
+        let mut out = text.to_string();
+        for (mishear, correct) in pairs {
+            out = crate::snippets::replace_phrase(&out, mishear, correct);
+        }
+        // Normalize the casing of the authoritative spellings themselves.
+        for e in &self.entries {
+            out = crate::snippets::replace_phrase(&out, &e.correct, &e.correct);
+        }
+        out
+    }
+
     /// Select the entries relevant to `utterance` — those whose spelling or a known
     /// mishear is edit-close to a spoken token (or adjacent token pair, to catch
     /// split words like "charge bee" → "ChargeBee") — capped to `max`.
@@ -163,6 +192,26 @@ mod tests {
     fn prefilter_ignores_unrelated_utterance() {
         let v = store().prefilter("the weather is nice today", 15);
         assert!(v.is_empty());
+    }
+
+    #[test]
+    fn apply_spellings_fixes_mishears_and_casing() {
+        let s = store();
+        assert_eq!(
+            s.apply_spellings("Send the deck to monvi and renew charge bee, chargebee is due."),
+            "Send the deck to Manvi and renew ChargeBee, ChargeBee is due."
+        );
+    }
+
+    #[test]
+    fn apply_spellings_leaves_unrelated_words_alone() {
+        let s = store();
+        // "Manvis" (inflected) and unrelated text must survive untouched: this
+        // pass is exact, never fuzzy.
+        assert_eq!(
+            s.apply_spellings("Manvis Laptop und ein Monvieee bleiben."),
+            "Manvis Laptop und ein Monvieee bleiben."
+        );
     }
 
     #[test]
