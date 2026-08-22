@@ -654,7 +654,13 @@ return acted"#,
     /// at startup and whenever a key or model changes, so edits take effect live.
     pub fn rebuild_providers() {
         let settings = current_settings();
-        let openai = read_openai_key().map(|k| {
+        // A custom base URL means a self-hosted OpenAI-compatible server (mlx-lm,
+        // Ollama, LM Studio, llama.cpp). Those ignore the API key, so requiring one
+        // would lock the user out of their own local model for no reason.
+        let key = read_openai_key().or_else(|| {
+            (!settings.openai_base_url.trim().is_empty()).then(|| "local".to_string())
+        });
+        let openai = key.map(|k| {
             whimpr_cleanup::OpenAiProvider::with_base_url(
                 k,
                 settings.openai_model.clone(),
@@ -824,7 +830,28 @@ return acted"#,
                     eprintln!("[whimpr] on-demand cleanup failed ({e}) — keeping the chunk raw");
                     chunk.clone()
                 }
-                None => chunk.clone(),
+                None => {
+                    // No cleanup engine at all: the text still gets pasted, but
+                    // the user should know why it arrives unpolished.
+                    let (title, body) = match current_settings().cleanup_mode {
+                        CleanupMode::Local => (
+                            tr("Local cleanup model missing", "Lokales Cleanup-Modell fehlt"),
+                            tr(
+                                "Text was pasted as spoken. Install the model in Settings > Models, or pick a cloud engine.",
+                                "Text wurde so eingefügt, wie gesprochen. Modell in Einstellungen > Modelle laden oder Cloud-Engine wählen.",
+                            ),
+                        ),
+                        _ => (
+                            tr("Cleanup engine unavailable", "Cleanup-Engine nicht verfügbar"),
+                            tr(
+                                "Text was pasted as spoken. Check the API key for your cleanup engine in Settings.",
+                                "Text wurde so eingefügt, wie gesprochen. Prüf den API-Key deiner Cleanup-Engine in den Einstellungen.",
+                            ),
+                        ),
+                    };
+                    warn_throttled("cleanup-unavailable", title, body);
+                    chunk.clone()
+                }
             };
             out.push(cleaned);
         }
@@ -1172,9 +1199,19 @@ return acted"#,
                         Some(t) => Ok(t),
                         None => match ASR.get().cloned() {
                             Some(asr) => asr.transcribe(&pcm).map(|t| t.text),
-                            None => Err(anyhow::anyhow!(
-                                "ASR not ready (model still loading or missing)"
-                            )),
+                            None => {
+                                warn_throttled(
+                                    "asr-missing",
+                                    tr("Speech model not ready", "Sprachmodell nicht bereit"),
+                                    tr(
+                                        "Nothing was transcribed. The model is still loading, or it is missing: install it in Settings > Models.",
+                                        "Es wurde nichts transkribiert. Das Modell lädt noch oder fehlt: in Einstellungen > Modelle laden.",
+                                    ),
+                                );
+                                Err(anyhow::anyhow!(
+                                    "ASR not ready (model still loading or missing)"
+                                ))
+                            }
                         },
                     };
                     match transcribed {
@@ -2080,6 +2117,26 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
     /// Pick the English or German variant of a notification string.
     fn tr<'a>(en: &'a str, de: &'a str) -> &'a str {
         if ui_lang_is_de() { de } else { en }
+    }
+
+    /// Warn once per 10 minutes about a capability that silently degraded
+    /// (missing model, unreachable engine). Throttled so a broken setup never
+    /// turns into a notification storm while dictating.
+    fn warn_throttled(key: &str, title: &str, body: &str) {
+        static LAST: OnceLock<Mutex<std::collections::HashMap<String, u64>>> = OnceLock::new();
+        let map = LAST.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        let now = unix_now();
+        {
+            let mut m = map.lock().unwrap();
+            if let Some(prev) = m.get(key) {
+                if now.saturating_sub(*prev) < 600 {
+                    return;
+                }
+            }
+            m.insert(key.to_string(), now);
+        }
+        eprintln!("[whimpr] WARN {key}: {body}");
+        notify(title, body);
     }
 
     fn notify(title: &str, body: &str) {

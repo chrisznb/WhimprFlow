@@ -5,6 +5,7 @@ import { font } from "../tokens/values";
 import { theme } from "./theme";
 import { Button, Card, Dot, PageTitle, Segmented } from "./ui";
 import { ModelDownload, useModelStatus } from "./models";
+import { Icon } from "./icons";
 import {
   getPillPosition,
   setPillPosition,
@@ -267,6 +268,7 @@ export function SettingsPane({
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>
               {t("set.baseUrlHint")}
+              <div style={{ marginTop: 4, color: theme.textFaint }}>{t("set.localServerHint")}</div>
             </div>
             <input
               type="text"
@@ -350,7 +352,7 @@ export function SettingsPane({
         </div>
       </Card>
 
-      <ModelsCard />
+      <ModelsCard settings={settings} />
 
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -513,12 +515,32 @@ function ModelRow({
   );
 }
 
-function ModelsCard() {
+function ModelsCard({ settings }: { settings: Settings }) {
   const { status, refresh } = useModelStatus();
   if (status === null) return null;
   return (
     <Card style={{ marginBottom: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 14 }}>{t("set.modelsTitle")}</div>
+      {((settings.asr_mode === "local" && !status.asr) ||
+        (settings.cleanup_mode === "local" && !status.llm)) && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "rgba(192,57,43,0.08)",
+            border: "1px solid rgba(192,57,43,0.28)",
+            borderRadius: 10,
+            padding: "10px 12px",
+            marginBottom: 14,
+            fontSize: 12.5,
+            color: "#C0392B",
+          }}
+        >
+          <Icon name="close" size={13} />
+          {t("set.modelMissing")}
+        </div>
+      )}
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         <ModelRow
           title={t("set.asrTitle")}
