@@ -472,3 +472,40 @@ mod hesitation_tests {
         assert_eq!(strip_hesitations("\u{c4}hhh also \u{f6}hm gut."), "also gut.");
     }
 }
+
+/// Should a throttled warning fire? `last` is when this warning last fired
+/// (None = never), `now` and the window are unix seconds. Pure so the
+/// notification cadence is testable without a running app.
+pub fn should_warn(last: Option<u64>, now: u64, window_secs: u64) -> bool {
+    match last {
+        None => true,
+        Some(prev) => now.saturating_sub(prev) >= window_secs,
+    }
+}
+
+#[cfg(test)]
+mod warn_tests {
+    use super::should_warn;
+
+    #[test]
+    fn first_warning_always_fires() {
+        assert!(should_warn(None, 1000, 600));
+    }
+
+    #[test]
+    fn repeat_inside_window_is_suppressed() {
+        assert!(!should_warn(Some(1000), 1300, 600));
+    }
+
+    #[test]
+    fn warning_fires_again_after_the_window() {
+        assert!(should_warn(Some(1000), 1600, 600));
+        assert!(should_warn(Some(1000), 5000, 600));
+    }
+
+    #[test]
+    fn clock_going_backwards_does_not_spam() {
+        // saturating_sub keeps a backwards clock from looking like a huge gap.
+        assert!(!should_warn(Some(2000), 1000, 600));
+    }
+}

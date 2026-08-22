@@ -831,25 +831,9 @@ return acted"#,
                     chunk.clone()
                 }
                 None => {
-                    // No cleanup engine at all: the text still gets pasted, but
-                    // the user should know why it arrives unpolished.
-                    let (title, body) = match current_settings().cleanup_mode {
-                        CleanupMode::Local => (
-                            tr("Local cleanup model missing", "Lokales Cleanup-Modell fehlt"),
-                            tr(
-                                "Text was pasted as spoken. Install the model in Settings > Models, or pick a cloud engine.",
-                                "Text wurde so eingefügt, wie gesprochen. Modell in Einstellungen > Modelle laden oder Cloud-Engine wählen.",
-                            ),
-                        ),
-                        _ => (
-                            tr("Cleanup engine unavailable", "Cleanup-Engine nicht verfügbar"),
-                            tr(
-                                "Text was pasted as spoken. Check the API key for your cleanup engine in Settings.",
-                                "Text wurde so eingefügt, wie gesprochen. Prüf den API-Key deiner Cleanup-Engine in den Einstellungen.",
-                            ),
-                        ),
-                    };
-                    warn_throttled("cleanup-unavailable", title, body);
+                    // No cleanup engine at all: the text is still returned, but
+                    // the user should know why it comes back unpolished.
+                    warn_cleanup_unavailable();
                     chunk.clone()
                 }
             };
@@ -931,11 +915,7 @@ return acted"#,
                 raw_out
             }
             None => {
-                if matches!(settings.cleanup_mode, CleanupMode::Local) {
-                    eprintln!("[whimpr] local cleanup model not wired yet — pasting raw");
-                } else {
-                    eprintln!("[whimpr] cleanup provider has no API key — pasting raw");
-                }
+                warn_cleanup_unavailable();
                 raw_out
             }
         }
@@ -2119,6 +2099,28 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         if ui_lang_is_de() { de } else { en }
     }
 
+    /// The user-facing warning for "cleanup could not run at all", shared by the
+    /// dictation pipeline and the on-demand Transcribe button.
+    fn warn_cleanup_unavailable() {
+        let (title, body) = match current_settings().cleanup_mode {
+            CleanupMode::Local => (
+                tr("Local cleanup model missing", "Lokales Cleanup-Modell fehlt"),
+                tr(
+                    "Text was pasted as spoken. Install the model in Settings > Models, or pick a cloud engine.",
+                    "Text wurde so eingefügt, wie gesprochen. Modell in Einstellungen > Modelle laden oder Cloud-Engine wählen.",
+                ),
+            ),
+            _ => (
+                tr("Cleanup engine unavailable", "Cleanup-Engine nicht verfügbar"),
+                tr(
+                    "Text was pasted as spoken. Check the API key or base URL of your cleanup engine in Settings.",
+                    "Text wurde so eingefügt, wie gesprochen. Prüf API-Key oder Basis-URL deiner Cleanup-Engine in den Einstellungen.",
+                ),
+            ),
+        };
+        warn_throttled("cleanup-unavailable", title, body);
+    }
+
     /// Warn once per 10 minutes about a capability that silently degraded
     /// (missing model, unreachable engine). Throttled so a broken setup never
     /// turns into a notification storm while dictating.
@@ -2128,10 +2130,8 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         let now = unix_now();
         {
             let mut m = map.lock().unwrap();
-            if let Some(prev) = m.get(key) {
-                if now.saturating_sub(*prev) < 600 {
-                    return;
-                }
+            if !whimpr_core::cleanup::should_warn(m.get(key).copied(), now, 600) {
+                return;
             }
             m.insert(key.to_string(), now);
         }
