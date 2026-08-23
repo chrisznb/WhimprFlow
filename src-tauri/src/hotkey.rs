@@ -2246,7 +2246,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             .and_then(|v| v.get("tag_name").and_then(|t| t.as_str().map(String::from)))
             .map(|t| t.trim_start_matches('v').to_string());
             match latest {
-                Some(l) if !l.is_empty() && l != current => {
+                Some(l) if whimpr_core::is_newer_version(&l, &current) => {
                     if let Err(e) = self_update() {
                         eprintln!("[whimpr] self-update failed: {e}");
                         notify(tr("WhimprFlow update failed", "WhimprFlow-Update fehlgeschlagen"), &e);
@@ -2273,7 +2273,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
                 .unwrap_or("")
                 .trim_start_matches('v')
                 .to_string();
-            if !latest.is_empty() && latest != current {
+            if whimpr_core::is_newer_version(&latest, &current) {
                 eprintln!("[whimpr] update available: {latest} (running {current})");
                 notify(
                     tr("WhimprFlow update available", "WhimprFlow-Update verfügbar"),
