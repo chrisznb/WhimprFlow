@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { availableLangs, t } from "../i18n";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { font } from "../tokens/values";
@@ -40,6 +40,36 @@ function SectionTitle({ children, sub }: { children: React.ReactNode; sub?: stri
       <div style={{ fontSize: 15, fontWeight: 600, color: theme.textStrong }}>{children}</div>
       {sub && <div style={{ color: theme.textMuted, fontSize: 13, marginTop: 4 }}>{sub}</div>}
     </div>
+  );
+}
+
+function LangPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const langs = availableLangs();
+  const options = [{ value: "system", label: t("set.langSystem") }, ...langs.map((l) => ({ value: l.code, label: l.label }))];
+  if (options.length <= 3) {
+    return <Segmented options={options} value={value} onChange={onChange} />;
+  }
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        border: `1px solid ${theme.border}`,
+        borderRadius: 8,
+        padding: "7px 10px",
+        fontSize: 13,
+        fontFamily: font.ui,
+        color: theme.textStrong,
+        background: "#fff",
+        cursor: "pointer",
+      }}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -160,12 +190,7 @@ export function SettingsPane({
             <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("set.langTitle")}</div>
             <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 2 }}>{t("set.langSub")}</div>
           </div>
-          <Segmented
-            options={[
-              { value: "system", label: t("set.langSystem") },
-              { value: "de", label: "Deutsch" },
-              { value: "en", label: "English" },
-            ]}
+          <LangPicker
             value={settings.language || "system"}
             onChange={(v) => onChange({ ...settings, language: v })}
           />
