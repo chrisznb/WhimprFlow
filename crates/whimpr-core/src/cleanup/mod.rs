@@ -229,16 +229,29 @@ const LAYOUT_CUES_POST: &[(&str, &str)] = &[
 /// paragraph", ...) into break sentinels in the RAW transcript *before* it reaches
 /// the model, so the user's requested breaks are guaranteed to survive. Correction
 /// cues are intentionally excluded — they stay the model's context-sensitive job.
-/// True for vocal hesitations that never carry meaning in German speech
-/// ("äh", "ähm", "ähhh", "öhm", "ehm"). English "um"/"uh" are NOT handled here:
-/// "um" is a German preposition, so those stay LLM territory.
+/// Vocal hesitations that are not a real word in ANY language we support, so
+/// deleting them is always safe: the German "äh/ähm/öhm" family, French "euh",
+/// and the "ehm/uhm/umm" spellings. Deliberately excluded because they ARE
+/// words somewhere: "eh" (German interjection, Dutch), "um" (German
+/// preposition), "este" (Spanish "this"), "hm" (a real acknowledgement).
+/// Everything ambiguous stays LLM territory.
 fn is_hesitation(core: &str) -> bool {
     let c = core.to_lowercase();
-    if c.len() < 2 || c == "eh" || c.starts_with('m') {
+    if c.len() < 3 {
         return false;
     }
-    let only_hesitation_chars = c.chars().all(|ch| matches!(ch, '\u{e4}' | '\u{f6}' | 'e' | 'h' | 'm'));
-    only_hesitation_chars && (c.contains('\u{e4}') || c.contains('\u{f6}') || c == "ehm" || c == "ehmm")
+    // German family: contains an umlaut and nothing but hesitation letters.
+    let german = c.chars().all(|ch| matches!(ch, '\u{e4}' | '\u{f6}' | 'e' | 'h' | 'm'))
+        && (c.contains('\u{e4}') || c.contains('\u{f6}'));
+    // French "euh", stretched "euhhh", plus "ehm/uhm/umm" spellings. Built from
+    // a stem + optional repeats of its own letters so "euhhh" and "uhmm" match
+    // while real words never do.
+    let plain = matches!(c.as_str(), "ehm" | "uhm" | "umm" | "euh")
+        || (c.starts_with("euh") && c[3..].chars().all(|ch| ch == 'h'))
+        || (c.starts_with("ehm") && c[3..].chars().all(|ch| ch == 'm'))
+        || (c.starts_with("uhm") && c[3..].chars().all(|ch| ch == 'm'))
+        || (c.starts_with("umm") && c[3..].chars().all(|ch| ch == 'm'));
+    german || plain
 }
 
 /// Deterministically remove unambiguous vocal hesitations before the LLM pass.
@@ -470,6 +483,27 @@ mod hesitation_tests {
     #[test]
     fn drops_long_variants() {
         assert_eq!(strip_hesitations("\u{c4}hhh also \u{f6}hm gut."), "also gut.");
+    }
+
+    #[test]
+    fn drops_french_and_dutch_hesitations() {
+        assert_eq!(strip_hesitations("euh on se voit demain"), "on se voit demain");
+        assert_eq!(strip_hesitations("euhhh peut-\u{ea}tre"), "peut-\u{ea}tre");
+        assert_eq!(strip_hesitations("we spreken uhm morgen"), "we spreken morgen");
+    }
+
+    #[test]
+    fn keeps_words_that_only_look_like_hesitations() {
+        // Spanish "este" = "this", German "um"/"eh", English "hum"/"hmm".
+        for text in [
+            "este informe est\u{e1} listo",
+            "wir treffen uns um drei",
+            "das ist eh klar",
+            "hmm interessant",
+            "the hum of the machine",
+        ] {
+            assert_eq!(strip_hesitations(text), text, "should not touch: {text}");
+        }
     }
 }
 

@@ -18,13 +18,22 @@ The dictation may be in any language (often German or English). Always return th
 cleaned text in the SAME language it was spoken — never translate.
 
 ALLOWED edits (do only these):
-1. Delete filler words and hesitations (\"um\", \"uh\", \"er\", \"ähm\", \"äh\", \"eh\", and — \
-only when clearly not meaning-bearing — \"like\", \"you know\", \"I mean\", \"basically\"). \
-The German particles \"halt\", \"quasi\", and \"sozusagen\" are filler in almost every \
-spoken sentence: delete them unless the sentence stops making sense without them.
+1. Delete filler words and hesitations in WHATEVER LANGUAGE the dictation is in. \
+Vocal hesitations are never meaning-bearing: English \"um\", \"uh\", \"er\"; German \"ähm\", \
+\"äh\"; French \"euh\", \"ben\"; Spanish \"eh\", \"este\", \"o sea\"; Italian \"ehm\", \"cioè\"; \
+Dutch \"eh\", \"uhm\"; Portuguese \"hã\", \"tipo\" — and the same class of sound in any \
+other language. Discourse particles that merely pad a sentence go too when they \
+carry no meaning: English \"like\", \"you know\", \"I mean\", \"basically\"; German \"halt\", \
+\"quasi\", \"sozusagen\" (filler in almost every spoken German sentence — delete them \
+unless the sentence stops making sense); French \"du coup\", \"genre\"; Spanish \"pues\", \
+\"bueno\" mid-sentence. Careful: several of these are real words in other positions \
+(Spanish \"este\" = \"this\", French \"genre\" = \"kind of\", German \"eben\"). Delete only \
+when the word is doing nothing but filling a pause.
 2. Collapse stutters and immediate repetitions (\"the the team\" -> \"the team\"). Keep \
 deliberate reduplication for emphasis (\"bye bye\", \"no no\").
-3. Resolve spoken self-corrections: on \"actually\", \"scratch that\", \"wait\", \"no wait\", \
+3. Resolve spoken self-corrections in any language (French: \"non attends\", \"enfin\", \
+\"pardon\"; Spanish: \"no espera\", \"perdón\", \"digo\"; Italian: \"anzi\", \"scusa\"; Dutch: \
+\"nee wacht\", \"sorry\"): on \"actually\", \"scratch that\", \"wait\", \"no wait\", \
 \"I mean\", \"sorry\", \"make that\", \"I meant\", \"never mind\" (German: \"nee\", \"nee warte\", \
 \"ne warte\", \"nein\", \"äh nein\", \"oder nee\", \"ach nee\", \"Quatsch\", \"ich meine\"), keep \
 only the corrected wording and delete both the abandoned wording and the correction cue \
@@ -158,6 +167,26 @@ pub const FEW_SHOT: &[(&str, &str)] = &[
     (
         "wir machen das morgen fertig und ähm ja",
         "Wir machen das morgen fertig.",
+    ),
+    // French: hesitation + self-correction, output stays French.
+    (
+        "euh on se voit mardi non attends jeudi à trois heures",
+        "On se voit jeudi à trois heures.",
+    ),
+    // Spanish: "este" as a hesitation here, and a correction with "digo".
+    (
+        "este la reunión es el martes digo el jueves a las tres",
+        "La reunión es el jueves a las tres.",
+    ),
+    // Spanish counter-example: "este" as a real determiner must survive.
+    (
+        "este informe está listo para revisión",
+        "Este informe está listo para revisión.",
+    ),
+    // Dutch: hesitation removed, sentence otherwise untouched.
+    (
+        "we spreken elkaar uhm morgenochtend even",
+        "We spreken elkaar morgenochtend even.",
     ),
 ];
 
