@@ -1966,30 +1966,10 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
 
     /// Spoken translation prefix ("auf Englisch: ..."), returning the target
     /// language and the remaining transcript.
+    /// Spoken translation command ("auf Englisch: ...", "en anglais, ..."),
+    /// delegated to whimpr-core so the language table stays testable.
     fn split_translate_prefix(raw: &str) -> (Option<String>, String) {
-        let trimmed = raw.trim_start();
-        let lower = trimmed.to_lowercase();
-        const PREFIXES: [(&str, &str); 8] = [
-            ("auf englisch", "English"),
-            ("in english", "English"),
-            ("auf deutsch", "German"),
-            ("in german", "German"),
-            ("auf spanisch", "Spanish"),
-            ("auf franzoesisch", "French"),
-            ("auf französisch", "French"),
-            ("auf italienisch", "Italian"),
-        ];
-        for (pfx, lang) in PREFIXES {
-            if lower.starts_with(pfx) {
-                let rest = trimmed[pfx.len()..]
-                    .trim_start_matches([':', ',', '.', '!', ' '])
-                    .to_string();
-                if rest.chars().count() > 2 {
-                    return (Some(lang.to_string()), rest);
-                }
-            }
-        }
-        (None, raw.to_string())
+        whimpr_core::cleanup::split_translate_prefix(raw)
     }
 
     // --- Contacts import ---------------------------------------------------

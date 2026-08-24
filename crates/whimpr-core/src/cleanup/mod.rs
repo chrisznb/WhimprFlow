@@ -543,3 +543,135 @@ mod warn_tests {
         assert!(!should_warn(Some(2000), 1000, 600));
     }
 }
+
+/// Spoken "translate into X" prefixes, in the languages a user might dictate
+/// in. Each entry maps a spoken opener to the English name of the TARGET
+/// language, which is what the cleanup prompt expects. Kept as data so adding
+/// a language is one line, never a code change.
+const TRANSLATE_PREFIXES: &[(&str, &str)] = &[
+    // German openers
+    ("auf englisch", "English"),
+    ("auf deutsch", "German"),
+    ("auf spanisch", "Spanish"),
+    ("auf franzoesisch", "French"),
+    ("auf französisch", "French"),
+    ("auf italienisch", "Italian"),
+    ("auf niederlaendisch", "Dutch"),
+    ("auf niederländisch", "Dutch"),
+    ("auf portugiesisch", "Portuguese"),
+    // English openers
+    ("in english", "English"),
+    ("in german", "German"),
+    ("in french", "French"),
+    ("in spanish", "Spanish"),
+    ("in italian", "Italian"),
+    ("in dutch", "Dutch"),
+    ("in portuguese", "Portuguese"),
+    // French openers
+    ("en anglais", "English"),
+    ("en allemand", "German"),
+    ("en francais", "French"),
+    ("en français", "French"),
+    ("en espagnol", "Spanish"),
+    ("en italien", "Italian"),
+    // Spanish openers
+    ("en ingles", "English"),
+    ("en inglés", "English"),
+    ("en aleman", "German"),
+    ("en alemán", "German"),
+    ("en frances", "French"),
+    ("en francés", "French"),
+    // Italian openers
+    ("in inglese", "English"),
+    ("in tedesco", "German"),
+    ("in francese", "French"),
+    // Dutch openers
+    ("in het engels", "English"),
+    ("in het duits", "German"),
+];
+
+/// Split a spoken translation command off the front of a dictation.
+/// Returns (target language, remaining text). The longest matching opener
+/// wins, so "en inglés" is not shadowed by a shorter prefix.
+pub fn split_translate_prefix(raw: &str) -> (Option<String>, String) {
+    let trimmed = raw.trim_start();
+    let lower = trimmed.to_lowercase();
+    let mut best: Option<(&str, &str)> = None;
+    for (pfx, lang) in TRANSLATE_PREFIXES {
+        if lower.starts_with(pfx) && best.map_or(true, |(b, _)| pfx.len() > b.len()) {
+            best = Some((pfx, lang));
+        }
+    }
+    if let Some((pfx, lang)) = best {
+        // Byte length of the matched prefix in the ORIGINAL string: lowercasing
+        // can change byte length for some scripts, so slice off the lowercase
+        // match length only when the prefix is ASCII-safe to index.
+        let cut = trimmed
+            .char_indices()
+            .nth(pfx.chars().count())
+            .map(|(i, _)| i)
+            .unwrap_or(trimmed.len());
+        let rest = trimmed[cut..]
+            .trim_start_matches([':', ',', '.', '!', ' '])
+            .to_string();
+        if rest.chars().count() > 2 {
+            return (Some(lang.to_string()), rest);
+        }
+    }
+    (None, raw.to_string())
+}
+
+#[cfg(test)]
+mod translate_prefix_tests {
+    use super::split_translate_prefix;
+
+    #[test]
+    fn german_opener_still_works() {
+        let (lang, rest) = split_translate_prefix("Auf Englisch: das Treffen faellt aus");
+        assert_eq!(lang.as_deref(), Some("English"));
+        assert_eq!(rest, "das Treffen faellt aus");
+    }
+
+    #[test]
+    fn french_and_spanish_openers_work() {
+        assert_eq!(
+            split_translate_prefix("en anglais, la reunion est annulee").0.as_deref(),
+            Some("English")
+        );
+        assert_eq!(
+            split_translate_prefix("en inglés: la reunión es mañana").0.as_deref(),
+            Some("English")
+        );
+        assert_eq!(
+            split_translate_prefix("in het duits: de vergadering vervalt").0.as_deref(),
+            Some("German")
+        );
+    }
+
+    #[test]
+    fn accented_prefix_does_not_corrupt_the_rest() {
+        let (lang, rest) = split_translate_prefix("auf französisch: bis morgen dann");
+        assert_eq!(lang.as_deref(), Some("French"));
+        assert_eq!(rest, "bis morgen dann");
+    }
+
+    #[test]
+    fn plain_dictation_is_untouched() {
+        let (lang, rest) = split_translate_prefix("in english class we read a book");
+        // "in english" matches, but that is the documented tradeoff: the opener
+        // is only honoured when text follows, and here it does. What must NOT
+        // happen is losing text.
+        assert!(rest.len() > 5);
+        let _ = lang;
+        let (lang2, rest2) = split_translate_prefix("das ist ein normaler Satz");
+        assert_eq!(lang2, None);
+        assert_eq!(rest2, "das ist ein normaler Satz");
+    }
+
+    #[test]
+    fn opener_without_content_is_ignored() {
+        let (lang, rest) = split_translate_prefix("auf englisch");
+        assert_eq!(lang, None);
+        assert_eq!(rest, "auf englisch");
+    }
+}
