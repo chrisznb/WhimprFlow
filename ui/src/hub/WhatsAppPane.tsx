@@ -138,7 +138,7 @@ export function WhatsAppPane() {
                 gap: 10,
               }}
             >
-              <Icon name={c.is_group ? "snippets" : "assistant"} size={16} />
+              <Icon name={c.is_group ? "group" : "person"} size={16} />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span
                   style={{

@@ -20,6 +20,8 @@ import {
   faPaperPlane,
   faCommentDots,
   faFileAudio,
+  faUserGroup,
+  faUser,
 } from "@fortawesome/free-solid-svg-icons";
 import {
   faBookOpen as faBookOpenSolid,
@@ -50,10 +52,14 @@ export type IconName =
   | "assistant"
   | "fileaudio"
   | "copy"
-  | "chat";
+  | "chat"
+  | "group"
+  | "person";
 
 const ICONS: Record<IconName, IconDefinition> = {
   chat: faCommentDots,
+  group: faUserGroup,
+  person: faUser,
   home: faHouse,
   insights: faChartSimple,
   dictionary: faBookOpenSolid,
