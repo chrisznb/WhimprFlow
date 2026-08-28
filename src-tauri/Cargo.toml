@@ -29,6 +29,10 @@ arboard = "3"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-notification = "2.3.3"
+# Reads WhatsApp's ChatStorage.sqlite. Bundled SQLite rather than the system
+# one so the build does not depend on what macOS happens to ship, and the
+# database is only ever opened read-only.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Windows platform layer (low-level keyboard hook, SendInput paste, foreground-app

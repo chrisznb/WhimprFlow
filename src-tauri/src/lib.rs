@@ -11,6 +11,7 @@ mod autolearn;
 mod hotkey;
 mod local_llm;
 mod paste;
+mod whatsapp;
 #[cfg(target_os = "windows")]
 mod win;
 
@@ -378,6 +379,47 @@ async fn cleanup_text(text: String) -> String {
     tauri::async_runtime::spawn_blocking(move || hotkey::cleanup_text_on_demand(&text))
         .await
         .unwrap_or_else(|_| String::new())
+}
+
+// --- WhatsApp voice messages ----------------------------------------------
+
+/// Whether the WhatsApp container can be read at all. Drives the explanation
+/// the pane shows instead of an empty list.
+#[tauri::command]
+fn wa_access() -> whatsapp::Access {
+    whatsapp::access()
+}
+
+#[tauri::command]
+async fn wa_chats() -> Result<Vec<whatsapp::Chat>, String> {
+    tauri::async_runtime::spawn_blocking(whatsapp::chats)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn wa_messages(chat_id: i64) -> Result<Vec<whatsapp::VoiceMessage>, String> {
+    tauri::async_runtime::spawn_blocking(move || whatsapp::messages(chat_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Transcribe one voice message and remember the result.
+///
+/// The cache is checked first, so reopening a chat costs nothing and the
+/// expensive work happens once per message for good.
+#[tauri::command]
+async fn wa_transcribe(id: i64, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(hit) = whatsapp::cache_get(id) {
+            return Ok(hit);
+        }
+        let text = hotkey::transcribe_audio_file(&path)?;
+        whatsapp::cache_put(id, &text);
+        Ok(text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[derive(serde::Serialize)]
@@ -758,6 +800,10 @@ pub fn run() {
             import_contacts,
             get_snippet_suggestions,
             transcribe_file,
+            wa_access,
+            wa_chats,
+            wa_messages,
+            wa_transcribe,
             model_status,
             download_model,
             cleanup_text,

@@ -461,3 +461,59 @@ export async function getFileTranscripts(): Promise<FileTranscript[]> {
     return [];
   }
 }
+
+// --- WhatsApp voice messages ----------------------------------------------
+
+export type WaAccess = "ok" | "denied" | "missing";
+
+export interface WaChat {
+  id: number;
+  name: string;
+  is_group: boolean;
+  count: number;
+  last_ms: number;
+}
+
+export interface WaMessage {
+  id: number;
+  chat_id: number;
+  sender: string;
+  from_me: boolean;
+  sent_ms: number;
+  duration_s: number;
+  path: string | null;
+  text: string | null;
+}
+
+export async function waAccess(): Promise<WaAccess> {
+  try {
+    return await invoke<WaAccess>("wa_access");
+  } catch {
+    return "missing";
+  }
+}
+
+export async function waChats(): Promise<WaChat[]> {
+  try {
+    return await invoke<WaChat[]>("wa_chats");
+  } catch {
+    return [];
+  }
+}
+
+export async function waMessages(chatId: number): Promise<WaMessage[]> {
+  try {
+    return await invoke<WaMessage[]>("wa_messages", { chatId });
+  } catch {
+    return [];
+  }
+}
+
+/// Returns the transcript, or null when it could not be produced.
+export async function waTranscribe(id: number, path: string): Promise<string | null> {
+  try {
+    return await invoke<string>("wa_transcribe", { id, path });
+  } catch {
+    return null;
+  }
+}

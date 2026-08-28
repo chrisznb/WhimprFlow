@@ -49,9 +49,11 @@ export type IconName =
   | "send"
   | "assistant"
   | "fileaudio"
-  | "copy";
+  | "copy"
+  | "chat";
 
 const ICONS: Record<IconName, IconDefinition> = {
+  chat: faCommentDots,
   home: faHouse,
   insights: faChartSimple,
   dictionary: faBookOpenSolid,

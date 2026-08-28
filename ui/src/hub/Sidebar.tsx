@@ -7,6 +7,7 @@ export type Page =
   | "home"
   | "assistant"
   | "transcribe"
+  | "whatsapp"
   | "insights"
   | "dictionary"
   | "snippets"
@@ -28,6 +29,7 @@ const MAIN: () => NavDef[] = () => [
   { key: "transforms", label: t("nav.transforms"), icon: "transforms" },
   { key: "scratchpad", label: t("nav.scratchpad"), icon: "scratchpad" },
   { key: "transcribe", label: t("nav.transcribe"), icon: "fileaudio" },
+  { key: "whatsapp", label: t("nav.whatsapp"), icon: "chat" },
 ];
 
 const BOTTOM: () => NavDef[] = () => [

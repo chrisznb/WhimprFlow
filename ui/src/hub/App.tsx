@@ -12,6 +12,7 @@ import { TransformsPane } from "./TransformsPane";
 import { ScratchpadPane } from "./ScratchpadPane";
 import { AssistantPane } from "./AssistantPane";
 import { TranscribePane } from "./TranscribePane";
+import { WhatsAppPane } from "./WhatsAppPane";
 import { SettingsPane } from "./SettingsPane";
 import { Help } from "./Help";
 import { ComingSoon } from "./ComingSoon";
@@ -91,6 +92,7 @@ export function App() {
           {page === "home" && <Home />}
           {page === "assistant" && <AssistantPane />}
           {page === "transcribe" && <TranscribePane />}
+          {page === "whatsapp" && <WhatsAppPane />}
           {page === "insights" && <Insights />}
           {page === "dictionary" && <DictionaryPane />}
           {page === "snippets" && <SnippetsPane />}
