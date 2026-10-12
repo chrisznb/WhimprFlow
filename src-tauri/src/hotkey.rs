@@ -74,7 +74,7 @@ mod imp {
     use std::path::PathBuf;
     use super::DictEntryDto;
     use std::ptr::{null, null_mut};
-    use std::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -327,7 +327,74 @@ return acted"#,
             music_log(&format!("resume: ok={ok} acted=\"{acted}\" err=\"{err}\""));
         });
     }
-    static CAPTURE: OnceLock<Mutex<Option<whimpr_audio::CaptureHandle>>> = OnceLock::new();
+    /// Every pill change bumps this. A delayed "go back to idle" only fires if
+    /// nothing else was shown in the meantime, so a stale timer can never hide
+    /// a recording that started after it was scheduled.
+    static BAR_GEN: AtomicU64 = AtomicU64::new(0);
+
+    /// Mic commands, executed strictly in order on one audio thread. Starting
+    /// the mic takes a moment; with a queue a fast Stop waits for that Start
+    /// instead of racing past it and orphaning a running capture.
+    enum AudioCmd {
+        Start(AppHandle),
+        Stop(std::sync::mpsc::Sender<Option<whimpr_audio::CaptureHandle>>),
+        Discard,
+    }
+    static AUDIO_TX: OnceLock<Mutex<std::sync::mpsc::Sender<AudioCmd>>> = OnceLock::new();
+
+    fn audio_send(cmd: AudioCmd) {
+        let tx = AUDIO_TX.get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<AudioCmd>();
+            std::thread::spawn(move || {
+                let mut current: Option<whimpr_audio::CaptureHandle> = None;
+                for cmd in rx {
+                    match cmd {
+                        AudioCmd::Start(app) => {
+                            // Never two mics at once: a leftover capture is ended first.
+                            if let Some(old) = current.take() {
+                                eprintln!("[whimpr] stopping orphaned capture before new start");
+                                let _ = old.stop();
+                            }
+                            match whimpr_audio::start(move |bars| {
+                                let _ = app.emit_to(
+                                    OVERLAY_LABEL,
+                                    "whimpr://audio/waveform",
+                                    WavePayload { bars: bars.to_vec() },
+                                );
+                            }) {
+                                Ok(h) => current = Some(h),
+                                Err(e) => eprintln!("[whimpr] mic capture failed to start: {e}"),
+                            }
+                        }
+                        AudioCmd::Stop(reply) => {
+                            let _ = reply.send(current.take());
+                        }
+                        AudioCmd::Discard => {
+                            if let Some(h) = current.take() {
+                                let _ = h.stop();
+                            }
+                        }
+                    }
+                }
+            });
+            Mutex::new(tx)
+        });
+        let _ = tx.lock().unwrap().send(cmd);
+    }
+
+    /// Show `state` after `ms`, unless the pill changed in between.
+    fn emit_bar_later(app: &AppHandle, ms: u64, state: &'static str) {
+        let gen = BAR_GEN.load(Ordering::SeqCst);
+        let app = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(ms));
+            if BAR_GEN.load(Ordering::SeqCst) == gen {
+                emit_bar(&app, state);
+            } else {
+                eprintln!("[whimpr] pill -> {state} skipped (pill changed meanwhile)");
+            }
+        });
+    }
     static ASR: OnceLock<Arc<whimpr_asr::WhisperEngine>> = OnceLock::new();
     static OPENAI: OnceLock<Mutex<Option<whimpr_cleanup::OpenAiProvider>>> = OnceLock::new();
     static ANTHROPIC: OnceLock<Mutex<Option<whimpr_cleanup::AnthropicProvider>>> = OnceLock::new();
@@ -646,6 +713,7 @@ return acted"#,
         if let Some(m) = SETTINGS.get() {
             *m.lock().unwrap() = new.clone();
         }
+        whimpr_asr::set_language(&new.asr_language);
         let _ = new.save(&settings_path());
         rebuild_providers();
     }
@@ -698,6 +766,13 @@ return acted"#,
 
     fn clean_transcript_with(raw: &str, translate_to: Option<String>) -> String {
         let cleaned = clean_transcript_inner(raw, translate_to);
+        // Dictionary spellings, deterministic and on every level: the LLM only
+        // gets the vocabulary as a hint, and with cleanup off, rejected by the
+        // gate, or failing it never applied the dictionary at all.
+        let cleaned = DICTIONARY
+            .get()
+            .map(|d| d.lock().unwrap().apply_spellings(&cleaned))
+            .unwrap_or(cleaned);
         // Spoken snippets expand after cleanup so triggers survive the LLM pass.
         SNIPPETS
             .get()
@@ -866,6 +941,13 @@ return acted"#,
             eprintln!("[whimpr] cleanup target app: {app}");
         }
         let style = style_for_app(&settings, app_bundle_id.as_deref());
+        // Light keeps the spoken sentences: the style may only steer
+        // punctuation and capitalization, never "complete sentences".
+        let style = if level == whimpr_core::cleanup::CleanupLevel::Light {
+            whimpr_core::StyleLevel::light_variant(style)
+        } else {
+            style
+        };
         // Context awareness: text around the caret (AX snapshot at record-start)
         // plus the previous dictation when it was moments ago (follow-ups).
         let mut window_context = WINDOW_CTX
@@ -1007,6 +1089,7 @@ return acted"#,
     }
 
     fn emit_bar(app: &AppHandle, state: &'static str) {
+        BAR_GEN.fetch_add(1, Ordering::SeqCst);
         eprintln!("[whimpr] pill -> {state}");
         if current_settings().mute_music_while_dictating {
             music_log(&format!("pill -> {state}"));
@@ -1071,38 +1154,22 @@ return acted"#,
                 emit_bar(app, bar_name(bar));
                 // Let the "done" tick linger briefly before returning to idle.
                 if bar == BarState::Done {
-                    let app2 = app.clone();
-                    std::thread::spawn(move || {
-                        std::thread::sleep(Duration::from_millis(500));
-                        emit_bar(&app2, "idle");
-                    });
+                    emit_bar_later(app, 500, "idle");
                 }
             }
             // Start the microphone; stream real RMS bars to the pill waveform.
             // Runs off the tap thread so the mic-permission prompt can't stall keys.
-            Action::StartCapture { .. } => {
-                let app_thread = app.clone();
-                std::thread::spawn(move || {
-                    let app_cb = app_thread.clone();
-                    match whimpr_audio::start(move |bars| {
-                        let _ = app_cb.emit_to(
-                            OVERLAY_LABEL,
-                            "whimpr://audio/waveform",
-                            WavePayload { bars: bars.to_vec() },
-                        );
-                    }) {
-                        Ok(handle) => {
-                            *CAPTURE.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(handle);
-                        }
-                        Err(e) => eprintln!("[whimpr] mic capture failed to start: {e}"),
-                    }
-                });
-            }
+            Action::StartCapture { .. } => audio_send(AudioCmd::Start(app.clone())),
             // Stop the mic, transcribe the buffered audio, and advance the machine.
             Action::StopCaptureAndFinalize { session } => {
                 let app2 = app.clone();
-                let handle = CAPTURE.get().and_then(|slot| slot.lock().unwrap().take());
+                let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+                audio_send(AudioCmd::Stop(reply_tx));
                 std::thread::spawn(move || {
+                    // Queued behind any in-flight Start, so this is the real handle.
+                    let handle = reply_rx.recv().ok().flatten();
+                    // Per-step timing into music-debug.log ("why is Cleaning slow?").
+                    let t_all = Instant::now();
                     // Whatever happens, return the pill to idle (done -> idle).
                     let finish =
                         || handle_input(Input::Pipeline(PipelineEvent::Committed { session }));
@@ -1126,7 +1193,17 @@ return acted"#,
                              Security → Microphone), then fully quit + reopen it and rerun."
                         );
                     }
+                    music_log(&format!("timing: mic stop {} ms", t_all.elapsed().as_millis()));
                     let pcm = whimpr_audio::resample_to_16k(&res.samples, res.sample_rate);
+                    // Nothing said (accidental Fn): stop here instead of letting
+                    // Whisper invent "Thank you". Pill goes straight back to idle.
+                    let speech = whimpr_audio::speech_ms(&pcm);
+                    music_log(&format!("vad: speech_ms={speech} peak={peak:.4}"));
+                    if speech < 300 {
+                        eprintln!("[whimpr] no speech detected — nothing to transcribe");
+                        handle_input(Input::Pipeline(PipelineEvent::Failed { session }));
+                        return;
+                    }
                     let asr_settings = current_settings();
                     // Cloud ASR first when selected (Mistral Voxtral / Groq / OpenAI),
                     // falling back to the local model on any failure.
@@ -1166,6 +1243,7 @@ return acted"#,
                         } else {
                             None
                         };
+                    let t_asr = Instant::now();
                     let transcribed: anyhow::Result<String> = match cloud_text {
                         // Cloud sometimes returns empty for quiet-but-real audio;
                         // give the local model a shot before giving up.
@@ -1194,6 +1272,11 @@ return acted"#,
                             }
                         },
                     };
+                    music_log(&format!(
+                        "timing: asr {} ms for {:.1}s audio",
+                        t_asr.elapsed().as_millis(),
+                        pcm.len() as f32 / 16_000.0
+                    ));
                     match transcribed {
                         Ok(t) => {
                             let mut raw = t;
@@ -1203,7 +1286,7 @@ return acted"#,
                             // the audio was actually quiet, so genuinely dictated
                             // thanks still go through.
                             if is_noise_annotation(&raw)
-                                || (peak < 0.012 && is_silence_hallucination(&raw))
+                                || ((peak < 0.012 || speech < 1500) && is_silence_hallucination(&raw))
                             {
                                 eprintln!("[whimpr] non-speech transcript dropped");
                                 raw = String::new();
@@ -1227,7 +1310,9 @@ return acted"#,
                                 _ => {}
                             }
                             let (translate_to, raw) = split_translate_prefix(&raw);
+                            let t_clean = Instant::now();
                             let mut text = clean_transcript_with(&raw, translate_to);
+                            music_log(&format!("timing: cleanup {} ms", t_clean.elapsed().as_millis()));
                             if text != raw {
                                 eprintln!("[whimpr] CLEANED:   \"{}\"", text);
                             }
@@ -1293,12 +1378,9 @@ return acted"#,
                                         "[whimpr] paste not confirmed — dictation kept in clipboard"
                                     );
                                     emit_bar(&app2, "clipboard");
-                                    let app3 = app2.clone();
-                                    std::thread::spawn(move || {
-                                        std::thread::sleep(Duration::from_millis(3200));
-                                        emit_bar(&app3, "idle");
-                                    });
+                                    emit_bar_later(&app2, 3200, "idle");
                                 }
+                                music_log(&format!("timing: total {} ms", t_all.elapsed().as_millis()));
                                 *LAST_DICTATION
                                     .get_or_init(|| Mutex::new(None))
                                     .lock()
@@ -1319,13 +1401,7 @@ return acted"#,
                     finish();
                 });
             }
-            Action::DiscardCapture { .. } => {
-                if let Some(slot) = CAPTURE.get() {
-                    if let Some(handle) = slot.lock().unwrap().take() {
-                        let _ = handle.stop();
-                    }
-                }
-            }
+            Action::DiscardCapture { .. } => audio_send(AudioCmd::Discard),
             // The ASR path (StopCaptureAndFinalize) now drives pipeline completion.
             Action::RunPipeline { .. } => {}
             // PlayPing / WarnSessionCap: no-ops for now.
@@ -2666,11 +2742,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
     }
 
     fn reset_bar_soon(app: &AppHandle) {
-        let app = app.clone();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(1400));
-            emit_bar(&app, "idle");
-        });
+        emit_bar_later(app, 1400, "idle");
     }
 
     /// Custom dictation hotkey: behaves exactly like the Fn key (hold = PTT,
@@ -2732,6 +2804,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             "[whimpr] cleanup mode: {:?}, level: {:?}",
             settings.cleanup_mode, settings.cleanup_level
         );
+        whimpr_asr::set_language(&settings.asr_language);
         let _ = SETTINGS.set(Mutex::new(settings));
         let _ = DICTIONARY.set(Mutex::new(dict));
         let _ = STATS.set(Mutex::new(whimpr_core::StatsStore::load(&stats_path())));

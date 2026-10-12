@@ -222,6 +222,21 @@ export function SettingsPane({
         <div style={{ color: theme.textMuted, fontSize: 12.5, marginTop: 10 }}>
           {settings.asr_mode === "local" ? t("set.trLocalHint") : t("set.trCloudHint")}
         </div>
+        {settings.asr_mode === "local" && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontSize: 12.5, color: theme.textMuted, marginBottom: 6 }}>{t("set.asrLang")}</div>
+            <Segmented
+              options={[
+                { value: "auto", label: t("set.asrLangAuto") },
+                { value: "de", label: t("set.asrLangDe") },
+                { value: "en", label: t("set.asrLangEn") },
+              ]}
+              value={settings.asr_language || "auto"}
+              onChange={(v) => onChange({ ...settings, asr_language: v })}
+            />
+            <div style={{ color: theme.textMuted, fontSize: 12.5, marginTop: 8 }}>{t("set.asrLangHint")}</div>
+          </div>
+        )}
         {settings.asr_mode === "cloud" && (
           <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
             <div style={{ flex: 1 }}>

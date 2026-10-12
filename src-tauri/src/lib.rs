@@ -387,7 +387,28 @@ async fn cleanup_text(text: String) -> String {
 /// the pane shows instead of an empty list.
 #[tauri::command]
 fn wa_access() -> whatsapp::Access {
-    whatsapp::access()
+    let a = whatsapp::access();
+    debug_log(&format!("wa_access: {a:?} ({})", whatsapp::probe_detail()));
+    a
+}
+
+/// Open System Settings straight at Full Disk Access. macOS quits the app by
+/// itself once the switch is flipped ("Quit & Reopen"); that is expected.
+#[tauri::command]
+fn open_full_disk_settings() {
+    #[cfg(target_os = "macos")]
+    open_url("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
+}
+
+/// Append a line to music-debug.log, the shared diagnosis channel.
+fn debug_log(line: &str) {
+    use std::io::Write;
+    let home = std::env::var("HOME").unwrap_or_default();
+    let path = std::path::PathBuf::from(home)
+        .join("Library/Application Support/WhimprFlow/music-debug.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{line}");
+    }
 }
 
 #[tauri::command]
@@ -790,6 +811,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
+            open_full_disk_settings,
             get_settings,
             set_settings,
             get_orientation,

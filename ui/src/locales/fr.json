@@ -300,8 +300,13 @@
   "wa.queued": "En attente",
   "wa.notDownloaded": "Cet audio n'a jamais ete telecharge sur ce Mac. Ouvre-le une fois dans WhatsApp, puis reviens.",
   "wa.denied.title": "WhimprFlow a besoin de l'acces complet au disque",
-  "wa.denied.body": "macOS protege le dossier WhatsApp. Ouvre Reglages Systeme, va dans Confidentialite et securite, puis Acces complet au disque, et active WhimprFlow. Redemarre ensuite l'application.",
-  "wa.denied.action": "Copier le lien vers les reglages",
+  "wa.denied.body": "macOS protège le dossier WhatsApp. Active WhimprFlow dans Confidentialité et sécurité, Accès complet au disque. macOS ferme ensuite WhimprFlow une fois, c'est normal : rouvre-le simplement.",
+  "wa.denied.action": "Ouvrir les réglages",
   "wa.missing.title": "Aucune application WhatsApp trouvee",
-  "wa.missing.body": "Ceci lit le stockage de l'application WhatsApp pour Mac. La version web garde ses donnees dans le navigateur, elles ne peuvent pas etre lues. WhatsApp Business fonctionne uniquement sur le web pour la plupart des gens et n'est pas pris en charge."
+  "wa.missing.body": "Ceci lit le stockage de l'application WhatsApp pour Mac. La version web garde ses donnees dans le navigateur, elles ne peuvent pas etre lues. WhatsApp Business fonctionne uniquement sur le web pour la plupart des gens et n'est pas pris en charge.",
+  "set.asrLang": "Langue de dictée",
+  "set.asrLangAuto": "Automatique",
+  "set.asrLangDe": "Allemand",
+  "set.asrLangEn": "Anglais",
+  "set.asrLangHint": "Une langue fixe divise à peu près par deux le temps de reconnaissance. Les mots d'autres langues restent écrits tels quels."
 }

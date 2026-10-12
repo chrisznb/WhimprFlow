@@ -89,6 +89,14 @@ pub fn access() -> Access {
     }
 }
 
+/// The raw result of the access probe, for the debug log: "ok" or the OS error.
+pub fn probe_detail() -> String {
+    match std::fs::read_dir(media_dir()) {
+        Ok(_) => "ok".to_string(),
+        Err(e) => format!("{:?}: {e}", e.kind()),
+    }
+}
+
 /// One chat that has at least one voice message.
 #[derive(Debug, Clone, Serialize)]
 pub struct Chat {

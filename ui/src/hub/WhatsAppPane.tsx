@@ -5,6 +5,7 @@ import { Button, Card, PageTitle, SkeletonRows } from "./ui";
 import { Icon } from "./icons";
 import {
   waAccess,
+  openFullDiskSettings,
   waChats,
   waMessages,
   waTranscribe,
@@ -97,9 +98,7 @@ export function WhatsAppPane() {
                 <div style={{ marginTop: 14 }}>
                 <Button
                   onClick={() => {
-                    void navigator.clipboard.writeText(
-                      "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-                    );
+                    void openFullDiskSettings();
                   }}
                 >
                   {t("wa.denied.action")}

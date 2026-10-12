@@ -29,6 +29,8 @@ export interface Settings {
   asr_mode: AsrMode;
   asr_base_url: string;
   asr_model: string;
+  // Spoken language hint for local transcription: "auto" | "de" | "en".
+  asr_language: string;
   dictation_hotkey: string;
   // Your own typing speed (WPM); the "time saved vs typing" stat compares against it.
   typing_wpm: number;
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   asr_mode: "local",
   asr_base_url: "https://api.mistral.ai/v1",
   asr_model: "voxtral-mini-latest",
+  asr_language: "auto",
   dictation_hotkey: "",
   typing_wpm: 45,
   language: "system",
@@ -483,6 +486,14 @@ export interface WaMessage {
   duration_s: number;
   path: string | null;
   text: string | null;
+}
+
+export async function openFullDiskSettings(): Promise<void> {
+  try {
+    await invoke("open_full_disk_settings");
+  } catch {
+    // Browser dev mode: no settings to open.
+  }
 }
 
 export async function waAccess(): Promise<WaAccess> {

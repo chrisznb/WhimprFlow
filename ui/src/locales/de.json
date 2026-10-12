@@ -300,8 +300,13 @@
   "wa.queued": "Wartet",
   "wa.notDownloaded": "Diese Aufnahme wurde nie auf diesen Mac geladen. Oeffne sie einmal in WhatsApp und komm dann zurueck.",
   "wa.denied.title": "WhimprFlow braucht Festplattenvollzugriff",
-  "wa.denied.body": "macOS schuetzt den WhatsApp-Ordner. Oeffne die Systemeinstellungen, gehe zu Datenschutz & Sicherheit, dann Festplattenvollzugriff, und schalte WhimprFlow ein. Danach die App neu starten.",
-  "wa.denied.action": "Link zu den Einstellungen kopieren",
+  "wa.denied.body": "macOS schützt den WhatsApp-Ordner. Schalte WhimprFlow unter Datenschutz & Sicherheit, Festplattenvollzugriff ein. macOS beendet WhimprFlow danach einmal, das ist normal: einfach wieder öffnen.",
+  "wa.denied.action": "Einstellungen öffnen",
   "wa.missing.title": "Keine WhatsApp-App gefunden",
-  "wa.missing.body": "Gelesen wird der Speicher der WhatsApp-Mac-App. Die Web-Version legt ihre Daten im Browser ab, die lassen sich nicht lesen. WhatsApp Business laeuft bei den meisten nur im Browser und wird deshalb nicht unterstuetzt."
+  "wa.missing.body": "Gelesen wird der Speicher der WhatsApp-Mac-App. Die Web-Version legt ihre Daten im Browser ab, die lassen sich nicht lesen. WhatsApp Business laeuft bei den meisten nur im Browser und wird deshalb nicht unterstuetzt.",
+  "set.asrLang": "Diktiersprache",
+  "set.asrLangAuto": "Automatisch",
+  "set.asrLangDe": "Deutsch",
+  "set.asrLangEn": "Englisch",
+  "set.asrLangHint": "Eine feste Sprache halbiert etwa die Erkennungszeit. Englische Wörter und Sätze bleiben trotzdem englisch."
 }
