@@ -309,6 +309,9 @@ pub fn install(app: AppHandle) {
     let _ = CLOCK.set(Instant::now());
     let _ = SETTINGS.set(Mutex::new(whimpr_core::Settings::load(&settings_path())));
     let _ = DICTIONARY.set(Mutex::new(whimpr_core::DictionaryStore::load(&dict_path())));
+    if let Some(m) = DICTIONARY.get() {
+        sync_asr_prompt(&m.lock().unwrap());
+    }
     let _ = STATS.set(Mutex::new(whimpr_core::StatsStore::load(&stats_path())));
     let _ = OPENAI.set(Mutex::new(None));
     let _ = LOCAL.set(Mutex::new(None));
@@ -373,6 +376,15 @@ pub fn history(limit: usize) -> Vec<whimpr_core::HistoryItem> {
     STATS.get().map(|m| m.lock().unwrap().history(limit)).unwrap_or_default()
 }
 
+/// Hand the dictionary's spellings to Whisper as `initial_prompt`. Same ranking
+/// as on macOS, minus the context sources (Contacts/Calendar are macOS-only).
+fn sync_asr_prompt(store: &whimpr_core::DictionaryStore) {
+    let vocab = whimpr_core::ContextVocab::default();
+    let inp = whimpr_core::PromptInputs { vocab: &vocab, learned: &[], recent: &[], now: 0, soon_until: 0 };
+    let prompt = store.whisper_prompt_ranked(&inp, whimpr_core::context::PROMPT_BUDGET);
+    whimpr_asr::set_initial_prompt(prompt.as_ref().map(|(p, _)| p.as_str()).unwrap_or(""));
+}
+
 pub fn dictionary_entries() -> Vec<crate::hotkey::DictEntryDto> {
     DICTIONARY
         .get()
@@ -396,6 +408,7 @@ pub fn dictionary_add(correct: String, mishears: Vec<String>) {
         let mut store = m.lock().unwrap();
         store.add(correct, mishears, whimpr_core::DictSource::Manual);
         let _ = store.save(&dict_path());
+        sync_asr_prompt(&store);
     }
 }
 
@@ -404,6 +417,7 @@ pub fn dictionary_remove(correct: &str) {
         let mut store = m.lock().unwrap();
         if store.remove(correct) {
             let _ = store.save(&dict_path());
+            sync_asr_prompt(&store);
         }
     }
 }
@@ -413,5 +427,6 @@ pub fn dictionary_learn(correct: String, mishears: Vec<String>) {
         let mut store = m.lock().unwrap();
         store.add(correct, mishears, whimpr_core::DictSource::Auto);
         let _ = store.save(&dict_path());
+        sync_asr_prompt(&store);
     }
 }
