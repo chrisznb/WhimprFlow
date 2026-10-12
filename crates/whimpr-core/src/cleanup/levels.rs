@@ -32,8 +32,16 @@ impl CleanupLevel {
         match self {
             CleanupLevel::None => "",
             CleanupLevel::Light => {
-                "Be conservative: apply the allowed edits minimally. When unsure whether to \
-                 edit, leave the text as spoken."
+                "# LIGHT MODE (overrides the ALLOWED list above)\n\
+                 Keep the speaker's exact words, word order, and sentence structure. You may \
+                 ONLY: delete hesitations and pure fillers, collapse stutters, add punctuation \
+                 and capitalization, convert spoken punctuation and layout cues, resolve a \
+                 self-correction that has an explicit cue, format a list only when the speaker \
+                 says list cues, and fix spellings from the custom vocabulary. Do NOT fix \
+                 grammar, swap words for synonyms, merge, split, shorten, or drop sentences, \
+                 and do not make sentences more complete or formal. If a sentence is \
+                 ungrammatical as spoken, keep it as spoken. When unsure, return the words \
+                 exactly as spoken."
             }
             CleanupLevel::Medium => {
                 "You may also tighten wording for clarity and conciseness, but never change the \
@@ -53,9 +61,21 @@ impl CleanupLevel {
     pub fn max_novelty_ratio(self) -> f32 {
         match self {
             CleanupLevel::None => 0.0,
-            CleanupLevel::Light => 0.34,
+            CleanupLevel::Light => 0.25,
             CleanupLevel::Medium => 0.55,
             CleanupLevel::High => 0.85,
+        }
+    }
+
+    /// Ceiling on how much shorter (in characters) the cleaned text may be than
+    /// the hesitation-stripped transcript. Light only removes fillers, so a big
+    /// drop means the model cut real content; the higher levels may tighten.
+    pub fn max_shrink(self) -> f32 {
+        match self {
+            CleanupLevel::None => 0.0,
+            CleanupLevel::Light => 0.30,
+            CleanupLevel::Medium => 0.45,
+            CleanupLevel::High => 0.55,
         }
     }
 }

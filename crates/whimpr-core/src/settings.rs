@@ -82,6 +82,18 @@ impl StyleLevel {
             }
         }
     }
+
+    /// The modifier reduced to punctuation and capitalization, for the Light
+    /// cleanup level, which must not restructure what was said.
+    pub fn light_variant(modifier: &'static str) -> &'static str {
+        if modifier == StyleLevel::Formal.modifier() {
+            "Formal: proper sentence capitalization and full punctuation. Keep the sentences as spoken."
+        } else if modifier == StyleLevel::Casual.modifier() {
+            "Casual: natural capitalization, lighter punctuation. Keep the sentences as spoken."
+        } else {
+            modifier
+        }
+    }
 }
 
 /// Persisted user configuration.
@@ -101,6 +113,12 @@ pub struct Settings {
     /// Model for cloud transcription.
     #[serde(default = "default_asr_model")]
     pub asr_model: String,
+    /// Spoken language hint for local transcription: "auto" (default), "de",
+    /// or "en". A fixed language skips Whisper's detection pass (about half
+    /// the transcription time); English words inside German still come out
+    /// in English.
+    #[serde(default = "default_asr_language")]
+    pub asr_language: String,
     /// Extra dictation hotkey (accelerator syntax, e.g. "F13" or "Ctrl+Space").
     /// Fn always works; this adds a second key. Empty = none.
     #[serde(default)]
@@ -146,6 +164,10 @@ fn default_asr_base_url() -> String {
     "https://api.mistral.ai/v1".to_string()
 }
 
+fn default_asr_language() -> String {
+    "auto".to_string()
+}
+
 fn default_asr_model() -> String {
     "voxtral-mini-latest".to_string()
 }
@@ -165,6 +187,7 @@ impl Default for Settings {
             asr_mode: AsrMode::default(),
             asr_base_url: default_asr_base_url(),
             asr_model: default_asr_model(),
+            asr_language: default_asr_language(),
             dictation_hotkey: String::new(),
             typing_wpm: default_typing_wpm(),
             language: default_language(),

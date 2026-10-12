@@ -77,7 +77,7 @@ pub fn evaluate(raw: &str, cleaned: &str, level: CleanupLevel) -> GateVerdict {
     let raw_len = raw.chars().count().max(1) as f32;
     let clean_len = cleaned.chars().count() as f32;
     let shrink = (raw_len - clean_len) / raw_len;
-    if shrink > 0.55 {
+    if shrink > level.max_shrink() {
         return GateVerdict::Fail(GateReason::OverDeletion { shrink });
     }
     if clean_len > raw_len * 1.6 {
@@ -197,6 +197,16 @@ mod tests {
             evaluate(raw, clean, CleanupLevel::Medium),
             GateVerdict::Fail(GateReason::OverDeletion { .. })
         ));
+    }
+
+    #[test]
+    fn light_rejects_dropped_sentence_that_medium_allows() {
+        // The model silently dropped the second sentence: 35-40% shorter.
+        let raw = "Ich schicke dir das Angebot morgen frueh. Die Bilder kommen dann am Freitag dazu.";
+        let clean = "Ich schicke dir das Angebot morgen frueh.";
+        assert!(!evaluate(raw, clean, CleanupLevel::Light).passed());
+        let short = "Ich schicke dir das Angebot morgen frueh. Die Bilder kommen am Freitag.";
+        assert!(evaluate(raw, short, CleanupLevel::Medium).passed());
     }
 
     #[test]
