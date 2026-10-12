@@ -1,5 +1,6 @@
 //! Transcribe a 16 kHz mono WAV with the local whisper engine.
-//! Usage: cargo run -p whimpr-asr --example transcribe -- <model.bin> <audio.wav>
+//! Usage: cargo run -p whimpr-asr --example transcribe -- <model.bin> <audio.wav> [dictionary.json]
+//! With a dictionary, the file is transcribed twice: without and with the Whisper prompt.
 
 use std::path::Path;
 
@@ -27,9 +28,22 @@ fn main() -> anyhow::Result<()> {
     }
     let pcm = whimpr_audio_resample(&mono, spec.sample_rate);
 
+    whimpr_asr::set_language("de");
     let engine = WhisperEngine::load(Path::new(model))?;
+    let _ = engine.transcribe(&vec![0.0f32; 16_000]); // warm up Metal
+    let t0 = std::time::Instant::now();
     let t = engine.transcribe(&pcm)?;
-    println!("TRANSCRIPT: {}", t.text);
+    println!("TRANSCRIPT: {}  ({:?})", t.text, t0.elapsed());
+    if let Some(dict) = args.get(3) {
+        let store = whimpr_core::DictionaryStore::load(Path::new(dict));
+        if let Some((prompt, n)) = store.whisper_prompt(180) {
+            whimpr_asr::set_initial_prompt(&prompt);
+            println!("PROMPT: {n} terms");
+            let t0 = std::time::Instant::now();
+            let t = engine.transcribe(&pcm)?;
+            println!("TRANSCRIPT+PROMPT: {}  ({:?})", t.text, t0.elapsed());
+        }
+    }
     Ok(())
 }
 

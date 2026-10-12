@@ -626,12 +626,31 @@ return acted"#,
             .unwrap_or_default()
     }
 
+    /// Hand the dictionary's spellings to the ASR as Whisper prompt. `log` = true
+    /// only at startup, so the term count is logged once.
+    fn sync_asr_prompt(store: &whimpr_core::DictionaryStore, log: bool) {
+        // Whisper takes ~224 prompt tokens; stay well below.
+        match store.whisper_prompt(180) {
+            Some((p, n)) => {
+                whimpr_asr::set_initial_prompt(&p);
+                if log {
+                    eprintln!(
+                        "[whimpr] ASR prompt: {n} of {} dictionary terms",
+                        store.entries.len()
+                    );
+                }
+            }
+            None => whimpr_asr::set_initial_prompt(""),
+        }
+    }
+
     /// Add a manual dictionary entry and persist.
     pub fn dictionary_add(correct: String, mishears: Vec<String>) {
         if let Some(m) = DICTIONARY.get() {
             let mut store = m.lock().unwrap();
             store.add(correct, mishears, whimpr_core::DictSource::Manual);
             let _ = store.save(&dict_path());
+            sync_asr_prompt(&store, false);
         }
     }
 
@@ -641,6 +660,7 @@ return acted"#,
             let mut store = m.lock().unwrap();
             if store.remove(correct) {
                 let _ = store.save(&dict_path());
+                sync_asr_prompt(&store, false);
             }
         }
     }
@@ -652,6 +672,7 @@ return acted"#,
             let mut store = m.lock().unwrap();
             store.add(correct, mishears, whimpr_core::DictSource::Auto);
             let _ = store.save(&dict_path());
+            sync_asr_prompt(&store, false);
         }
     }
 
@@ -1218,6 +1239,7 @@ return acted"#,
                                         &key,
                                         &asr_settings.asr_model,
                                         wav,
+                                        whimpr_asr::initial_prompt().as_deref(),
                                     ) {
                                         Ok(t) => {
                                             eprintln!(
@@ -1665,6 +1687,7 @@ return acted"#,
                     &key,
                     &settings.asr_model,
                     bytes.clone(),
+                    whimpr_asr::initial_prompt().as_deref(),
                 ) {
                     Ok(t) if !t.trim().is_empty() => {
                         eprintln!(
@@ -2805,6 +2828,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
             settings.cleanup_mode, settings.cleanup_level
         );
         whimpr_asr::set_language(&settings.asr_language);
+        sync_asr_prompt(&dict, true);
         let _ = SETTINGS.set(Mutex::new(settings));
         let _ = DICTIONARY.set(Mutex::new(dict));
         let _ = STATS.set(Mutex::new(whimpr_core::StatsStore::load(&stats_path())));

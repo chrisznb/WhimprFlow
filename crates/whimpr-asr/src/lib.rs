@@ -18,6 +18,21 @@ fn language() -> String {
     if l.is_empty() { "auto".to_string() } else { l }
 }
 
+/// Whisper `initial_prompt` (dictionary terms), empty = none.
+static INITIAL_PROMPT: Mutex<String> = Mutex::new(String::new());
+
+/// Set the prompt handed to every local transcription. Biases Whisper toward
+/// the user's own spellings (names, product terms). Empty string clears it.
+pub fn set_initial_prompt(prompt: &str) {
+    *INITIAL_PROMPT.lock().unwrap() = prompt.trim().to_string();
+}
+
+/// The current prompt, `None` if unset (also used for the cloud `prompt` field).
+pub fn initial_prompt() -> Option<String> {
+    let p = INITIAL_PROMPT.lock().unwrap().clone();
+    if p.is_empty() { None } else { Some(p) }
+}
+
 use whimpr_core::asr::{AsrCaps, AsrEngine, AsrEngineId, Transcript};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
@@ -75,6 +90,10 @@ impl AsrEngine for WhisperEngine {
         // producing the sentence twice. Single-segment mode avoids that.
         params.set_single_segment(true);
         params.set_no_context(true);
+        let prompt = initial_prompt();
+        if let Some(p) = prompt.as_deref() {
+            params.set_initial_prompt(p);
+        }
 
         // whisper.cpp silently returns nothing for input under 1 s ("input is
         // too short"), which swallowed quick one-word dictations like "Ja".

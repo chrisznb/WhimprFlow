@@ -113,6 +113,38 @@ impl DictionaryStore {
         out
     }
 
+    /// Build a Whisper `initial_prompt` from the authoritative spellings: a plain
+    /// comma-separated term list, manual entries first, then the rest. Whisper
+    /// accepts ~224 prompt tokens; there is no tokenizer here, so tokens are
+    /// estimated conservatively (3 chars per token plus one for the separator)
+    /// and the list is cut before `max_tokens` is reached. Returns `None` for an
+    /// empty dictionary. Returns the prompt and the number of terms it holds.
+    pub fn whisper_prompt(&self, max_tokens: usize) -> Option<(String, usize)> {
+        let manual = self.entries.iter().filter(|e| e.source == DictSource::Manual);
+        let auto = self.entries.iter().filter(|e| e.source != DictSource::Manual);
+        let mut terms: Vec<&str> = Vec::new();
+        let mut used = 0usize;
+        for e in manual.chain(auto) {
+            let t = e.correct.trim();
+            // Mail addresses and the like are never spoken as such: no prompt value.
+            if t.is_empty() || t.contains('@') || terms.iter().any(|x| x.eq_ignore_ascii_case(t)) {
+                continue;
+            }
+            let cost = t.chars().count().div_ceil(3) + 1;
+            if used + cost > max_tokens {
+                break;
+            }
+            used += cost;
+            terms.push(t);
+        }
+        if terms.is_empty() {
+            None
+        } else {
+            let n = terms.len();
+            Some((terms.join(", "), n))
+        }
+    }
+
     /// Select the entries relevant to `utterance` — those whose spelling or a known
     /// mishear is edit-close to a spoken token (or adjacent token pair, to catch
     /// split words like "charge bee" → "ChargeBee") — capped to `max`.
@@ -221,5 +253,44 @@ mod tests {
         let e = s.entries.iter().find(|e| e.correct == "Manvi").unwrap();
         assert!(e.mishears.iter().any(|m| m == "Manvie"));
         assert_eq!(s.entries.iter().filter(|e| e.correct.eq_ignore_ascii_case("manvi")).count(), 1);
+    }
+
+    #[test]
+    fn whisper_prompt_empty_dictionary_gives_none() {
+        assert!(DictionaryStore::default().whisper_prompt(200).is_none());
+    }
+
+    #[test]
+    fn whisper_prompt_puts_manual_first_and_dedups() {
+        let mut d = DictionaryStore::default();
+        d.add("AutoTerm", vec![], DictSource::Auto);
+        d.add("HeinsApp", vec![], DictSource::Manual);
+        d.add("heinsapp", vec![], DictSource::Auto);
+        d.add("Lugu", vec![], DictSource::Manual);
+        let (p, n) = d.whisper_prompt(200).unwrap();
+        assert_eq!(p, "HeinsApp, Lugu, AutoTerm");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn whisper_prompt_skips_mail_addresses() {
+        let mut d = DictionaryStore::default();
+        d.add("a@b.de", vec![], DictSource::Manual);
+        d.add("Lugu", vec![], DictSource::Manual);
+        assert_eq!(d.whisper_prompt(200).unwrap().0, "Lugu");
+    }
+
+    #[test]
+    fn whisper_prompt_respects_token_limit() {
+        let mut d = DictionaryStore::default();
+        for i in 0..100 {
+            d.add(format!("Begriff{i:03}"), vec![], DictSource::Manual);
+        }
+        let (p, n) = d.whisper_prompt(50).unwrap();
+        assert!(n < 100 && n > 0);
+        // Each term costs ceil(9/3)+1 = 4 estimated tokens.
+        assert!(n * 4 <= 50);
+        assert!(p.starts_with("Begriff000, Begriff001"));
+        assert_eq!(p.split(", ").count(), n);
     }
 }

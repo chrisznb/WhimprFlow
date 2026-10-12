@@ -177,6 +177,7 @@ pub fn transcribe_cloud(
     api_key: &str,
     model: &str,
     wav: Vec<u8>,
+    prompt: Option<&str>,
 ) -> anyhow::Result<String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -185,9 +186,12 @@ pub fn transcribe_cloud(
     let part = reqwest::blocking::multipart::Part::bytes(wav)
         .file_name("audio.wav")
         .mime_str("audio/wav")?;
-    let form = reqwest::blocking::multipart::Form::new()
+    let mut form = reqwest::blocking::multipart::Form::new()
         .text("model", model.to_string())
         .part("file", part);
+    if let Some(p) = prompt.filter(|p| !p.is_empty()) {
+        form = form.text("prompt", p.to_string());
+    }
     let resp = client.post(&url).bearer_auth(api_key).multipart(form).send()?;
     let status = resp.status();
     let body: serde_json::Value = resp.json()?;
