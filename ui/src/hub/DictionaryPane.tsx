@@ -1,4 +1,4 @@
-import { t } from "../i18n";
+import { getLang, t } from "../i18n";
 import { useEffect, useState } from "react";
 import { font } from "../tokens/values";
 import { theme } from "./theme";
@@ -8,6 +8,7 @@ import {
   addDictionaryEntry,
   acceptSuggestion,
   getContextInfo,
+  type ContextInfo,
   getDictionary,
   getSuggestions,
   rejectSuggestion,
@@ -249,14 +250,14 @@ function Suggestions({ items, onChange }: { items: Suggestion[]; onChange: () =>
 export function DictionaryPane() {
   const [entries, setEntries] = useState<DictEntry[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
-  const [external, setExternal] = useState(0);
+  const [ctx, setCtx] = useState<ContextInfo | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
 
   const load = () => {
     void getSuggestions().then(setSuggestions);
-    void getContextInfo().then((c) => setExternal(c.external));
+    void getContextInfo().then(setCtx);
     return getDictionary().then(setEntries);
   };
   useEffect(() => {
@@ -290,9 +291,9 @@ export function DictionaryPane() {
           <p style={{ color: theme.textMuted, fontSize: 14, margin: "8px 0 0" }}>
             {t("dict.sub")}
           </p>
-          {external > 0 && (
+          {ctxSummary(ctx) && (
             <p style={{ color: theme.textFaint, fontSize: 12.5, margin: "4px 0 0" }}>
-              {t("dict.ctxLoaded", { n: external })}
+              {ctxSummary(ctx)}
             </p>
           )}
         </div>
@@ -392,4 +393,20 @@ export function DictionaryPane() {
       )}
     </div>
   );
+}
+
+/** "Additionally loaded: 4,787 from external file · 512 from contacts", only sources with terms. */
+function ctxSummary(c: ContextInfo | null): string {
+  if (!c) return "";
+  const fmt = (n: number) => n.toLocaleString(getLang());
+  const parts = (
+    [
+      ["dict.ctxExternal", c.external],
+      ["dict.ctxContacts", c.contacts],
+      ["dict.ctxCalendar", c.calendar],
+    ] as const
+  )
+    .filter(([, n]) => n > 0)
+    .map(([key, n]) => t(key, { n: fmt(n) }));
+  return parts.length ? t("dict.ctxLoaded", { list: parts.join(" · ") }) : "";
 }
