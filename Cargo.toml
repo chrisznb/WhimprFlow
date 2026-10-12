@@ -31,3 +31,9 @@ tracing = "0.1"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Proc-macros and build scripts run on this Mac during compilation. Stripped,
+# macOS 27's dyld refuses to load them ("mis-aligned LINKEDIT string pool"),
+# so only the shipped binaries get stripped.
+[profile.release.build-override]
+strip = false
