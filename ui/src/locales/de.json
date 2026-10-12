@@ -308,5 +308,19 @@
   "set.asrLangAuto": "Automatisch",
   "set.asrLangDe": "Deutsch",
   "set.asrLangEn": "Englisch",
-  "set.asrLangHint": "Eine feste Sprache halbiert etwa die Erkennungszeit. Englische Wörter und Sätze bleiben trotzdem englisch."
+  "set.asrLangHint": "Eine feste Sprache halbiert etwa die Erkennungszeit. Englische Wörter und Sätze bleiben trotzdem englisch.",
+  "dict.suggestTitle": "Vorschläge",
+  "dict.suggestQ": "„{heard}“ immer zu „{correct}“?",
+  "dict.suggestSeen": "{n}-mal so geschrieben",
+  "dict.accept": "Übernehmen",
+  "dict.decline": "Ablehnen",
+  "dict.ctxLoaded": "{n} externe Begriffe geladen",
+  "set.ctxSrcTitle": "Kontakte und Kalender als Hinweise",
+  "set.ctxSrcSub": "Namen aus Kontakten und Termine der nächsten 14 Tage helfen bei der Schreibweise. Alles bleibt lokal im Speicher.",
+  "set.contacts": "Kontakte",
+  "set.calendar": "Kalender",
+  "set.ctxStatusGranted": "{n} Begriffe geladen",
+  "set.ctxStatusDenied": "Zugriff verweigert, in den Systemeinstellungen erlauben",
+  "set.ctxStatusPending": "Wartet auf Erlaubnis",
+  "set.ctxStatusOff": "Aus"
 }

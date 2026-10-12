@@ -6,7 +6,11 @@
     <string>WhimprFlow uses your microphone to transcribe what you say into text.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>WhimprFlow pauses your music player while you dictate and resumes it afterwards.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>WhimprFlow reads upcoming event titles and attendee names so it spells them correctly when you dictate.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>WhimprFlow reads upcoming event titles and attendee names so it spells them correctly when you dictate.</string>
     <key>NSContactsUsageDescription</key>
-    <string>WhimprFlow can import your contacts' names into its dictionary so they are always spelled correctly.</string>
+    <string>WhimprFlow reads your contacts' names (never stored, never uploaded) so they are spelled correctly when you dictate.</string>
 </dict>
 </plist>

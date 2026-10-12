@@ -6,9 +6,14 @@ import { Button, Card } from "./ui";
 import { Icon } from "./icons";
 import {
   addDictionaryEntry,
+  acceptSuggestion,
+  getContextInfo,
   getDictionary,
+  getSuggestions,
+  rejectSuggestion,
   removeDictionaryEntry,
   type DictEntry,
+  type Suggestion,
 } from "./api";
 
 type Tab = "all" | "personal" | "shared";
@@ -196,13 +201,64 @@ function ImportContactsButton({ onDone }: { onDone: () => void }) {
   );
 }
 
+function Suggestions({ items, onChange }: { items: Suggestion[]; onChange: () => void }) {
+  if (items.length === 0) return null;
+  const act = async (fn: (h: string, c: string) => Promise<void>, s: Suggestion) => {
+    await fn(s.heard, s.correct);
+    onChange();
+  };
+  return (
+    <Card style={{ marginBottom: 16, borderColor: theme.accentSoftBorder }}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong, marginBottom: 6 }}>
+        {t("dict.suggestTitle")}
+      </div>
+      {items.map((s) => (
+        <div
+          key={`${s.heard}|${s.correct}`}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            padding: "10px 0",
+            borderTop: `1px solid ${theme.border}`,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, color: theme.textStrong }}>
+              {t("dict.suggestQ", { heard: s.heard, correct: s.correct })}
+            </div>
+            <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 2 }}>
+              {t("dict.suggestSeen", { n: s.count })}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <Button variant="accent" size="sm" onClick={() => void act(acceptSuggestion, s)}>
+              {t("dict.accept")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => void act(rejectSuggestion, s)}>
+              {t("dict.decline")}
+            </Button>
+          </div>
+        </div>
+      ))}
+    </Card>
+  );
+}
+
 export function DictionaryPane() {
   const [entries, setEntries] = useState<DictEntry[]>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [external, setExternal] = useState(0);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [adding, setAdding] = useState(false);
 
-  const load = () => getDictionary().then(setEntries);
+  const load = () => {
+    void getSuggestions().then(setSuggestions);
+    void getContextInfo().then((c) => setExternal(c.external));
+    return getDictionary().then(setEntries);
+  };
   useEffect(() => {
     void load();
   }, []);
@@ -234,6 +290,11 @@ export function DictionaryPane() {
           <p style={{ color: theme.textMuted, fontSize: 14, margin: "8px 0 0" }}>
             {t("dict.sub")}
           </p>
+          {external > 0 && (
+            <p style={{ color: theme.textFaint, fontSize: 12.5, margin: "4px 0 0" }}>
+              {t("dict.ctxLoaded", { n: external })}
+            </p>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <ImportContactsButton onDone={load} />
@@ -294,6 +355,8 @@ export function DictionaryPane() {
           <Icon name="sort" size={16} />
         </button>
       </div>
+
+      <Suggestions items={suggestions} onChange={() => void load()} />
 
       {adding && (
         <AddForm

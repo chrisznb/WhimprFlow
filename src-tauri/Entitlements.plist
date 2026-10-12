@@ -15,6 +15,11 @@
     <!-- Pause/resume Spotify and Music via AppleScript under hardened runtime. -->
     <key>com.apple.security.automation.apple-events</key>
     <true/>
+    <!-- Contacts and Calendar names as dictation hints (read-only, in memory). -->
+    <key>com.apple.security.personal-information.addressbook</key>
+    <true/>
+    <key>com.apple.security.personal-information.calendars</key>
+    <true/>
     <!-- Not sandboxed: Accessibility + CGEventTap require it off. -->
 </dict>
 </plist>

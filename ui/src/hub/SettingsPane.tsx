@@ -7,7 +7,9 @@ import { Button, Card, Dot, PageTitle, Segmented } from "./ui";
 import { ModelDownload, useModelStatus } from "./models";
 import { Icon } from "./icons";
 import {
+  getContextInfo,
   getPillPosition,
+  type ContextInfo,
   setPillPosition,
   type PillPosition,
   requestAccessibility,
@@ -180,6 +182,23 @@ export function SettingsPane({
   status: Status;
   refresh: () => void;
 }) {
+  const [ctxInfo, setCtxInfo] = useState<ContextInfo>({
+    external: 0,
+    contacts: 0,
+    calendar: 0,
+    contacts_status: "",
+    calendar_status: "",
+  });
+  useEffect(() => {
+    let alive = true;
+    const poll = () => void getContextInfo().then((c) => alive && setCtxInfo(c));
+    poll();
+    const id = window.setInterval(poll, 3000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
   return (
     <div style={{ maxWidth: 720 }}>
       <PageTitle serif>{t("set.title")}</PageTitle>
@@ -467,6 +486,43 @@ export function SettingsPane({
             onChange={(v) => onChange({ ...settings, context_awareness: v === "on" })}
           />
         </div>
+      </Card>
+
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: theme.textStrong }}>{t("set.ctxSrcTitle")}</div>
+        <div style={{ fontSize: 12.5, color: theme.textMuted, marginTop: 3, marginBottom: 12 }}>
+          {t("set.ctxSrcSub")}
+        </div>
+        {([
+          { key: "use_contacts", label: t("set.contacts"), status: ctxInfo.contacts_status, n: ctxInfo.contacts },
+          { key: "use_calendar", label: t("set.calendar"), status: ctxInfo.calendar_status, n: ctxInfo.calendar },
+        ] as const).map((src) => (
+          <div
+            key={src.key}
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 8 }}
+          >
+            <div>
+              <div style={{ fontSize: 13.5, color: theme.textStrong }}>{src.label}</div>
+              <div style={{ fontSize: 12, color: theme.textMuted }}>
+                {src.status === "granted"
+                  ? t("set.ctxStatusGranted", { n: src.n })
+                  : src.status === "denied"
+                    ? t("set.ctxStatusDenied")
+                    : src.status === "pending"
+                      ? t("set.ctxStatusPending")
+                      : t("set.ctxStatusOff")}
+              </div>
+            </div>
+            <Segmented
+              options={[
+                { value: "on", label: t("set.on") },
+                { value: "off", label: t("set.off") },
+              ]}
+              value={settings[src.key] ? "on" : "off"}
+              onChange={(v) => onChange({ ...settings, [src.key]: v === "on" })}
+            />
+          </div>
+        ))}
       </Card>
 
       <Card style={{ marginBottom: 16 }}>

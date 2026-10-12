@@ -308,5 +308,19 @@
   "set.asrLangAuto": "Automatique",
   "set.asrLangDe": "Allemand",
   "set.asrLangEn": "Anglais",
-  "set.asrLangHint": "Une langue fixe divise à peu près par deux le temps de reconnaissance. Les mots d'autres langues restent écrits tels quels."
+  "set.asrLangHint": "Une langue fixe divise à peu près par deux le temps de reconnaissance. Les mots d'autres langues restent écrits tels quels.",
+  "dict.suggestTitle": "Suggestions",
+  "dict.suggestQ": "Toujours écrire « {heard} » comme « {correct} » ?",
+  "dict.suggestSeen": "Écrit ainsi {n} fois",
+  "dict.accept": "Accepter",
+  "dict.decline": "Refuser",
+  "dict.ctxLoaded": "{n} termes externes chargés",
+  "set.ctxSrcTitle": "Contacts et calendrier comme indices",
+  "set.ctxSrcSub": "Les noms des contacts et les événements des 14 prochains jours aident à l'orthographe. Tout reste local, en mémoire.",
+  "set.contacts": "Contacts",
+  "set.calendar": "Calendrier",
+  "set.ctxStatusGranted": "{n} termes chargés",
+  "set.ctxStatusDenied": "Accès refusé, à autoriser dans les Réglages Système",
+  "set.ctxStatusPending": "En attente d'autorisation",
+  "set.ctxStatusOff": "Désactivé"
 }

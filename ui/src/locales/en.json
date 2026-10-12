@@ -308,5 +308,19 @@
   "set.asrLangAuto": "Automatic",
   "set.asrLangDe": "German",
   "set.asrLangEn": "English",
-  "set.asrLangHint": "A fixed language roughly halves recognition time. Words in other languages are still written as spoken."
+  "set.asrLangHint": "A fixed language roughly halves recognition time. Words in other languages are still written as spoken.",
+  "dict.suggestTitle": "Suggestions",
+  "dict.suggestQ": "Always spell “{heard}” as “{correct}”?",
+  "dict.suggestSeen": "Written this way {n} times",
+  "dict.accept": "Accept",
+  "dict.decline": "Decline",
+  "dict.ctxLoaded": "{n} external terms loaded",
+  "set.ctxSrcTitle": "Contacts and calendar as hints",
+  "set.ctxSrcSub": "Names from Contacts and events in the next 14 days help with spelling. Everything stays local, in memory.",
+  "set.contacts": "Contacts",
+  "set.calendar": "Calendar",
+  "set.ctxStatusGranted": "{n} terms loaded",
+  "set.ctxStatusDenied": "Access denied, allow it in System Settings",
+  "set.ctxStatusPending": "Waiting for permission",
+  "set.ctxStatusOff": "Off"
 }

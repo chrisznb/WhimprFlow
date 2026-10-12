@@ -36,6 +36,9 @@ export interface Settings {
   typing_wpm: number;
   // UI language: "system" | "de" | "en".
   language: string;
+  // Use Apple Contacts / Calendar names as dictation hints (active once permitted).
+  use_contacts: boolean;
+  use_calendar: boolean;
 }
 
 export interface Status {
@@ -89,6 +92,8 @@ export const DEFAULT_SETTINGS: Settings = {
   dictation_hotkey: "",
   typing_wpm: 45,
   language: "system",
+  use_contacts: true,
+  use_calendar: true,
 };
 
 async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -300,6 +305,51 @@ export async function removeDictionaryEntry(correct: string): Promise<void> {
   }
 }
 
+export interface Suggestion {
+  heard: string;
+  correct: string;
+  count: number;
+}
+
+export async function getSuggestions(): Promise<Suggestion[]> {
+  try {
+    return await invoke<Suggestion[]>("get_suggestions");
+  } catch {
+    return [];
+  }
+}
+
+export async function acceptSuggestion(heard: string, correct: string): Promise<void> {
+  try {
+    await invoke<void>("accept_suggestion", { heard, correct });
+  } catch {
+    /* browser preview — no-op */
+  }
+}
+
+export async function rejectSuggestion(heard: string, correct: string): Promise<void> {
+  try {
+    await invoke<void>("reject_suggestion", { heard, correct });
+  } catch {
+    /* browser preview — no-op */
+  }
+}
+
+export interface ContextInfo {
+  external: number;
+  contacts: number;
+  calendar: number;
+  contacts_status: string; // "granted" | "denied" | "pending" | "off" | ""
+  calendar_status: string;
+}
+
+export async function getContextInfo(): Promise<ContextInfo> {
+  try {
+    return await invoke<ContextInfo>("get_context_info");
+  } catch {
+    return { external: 0, contacts: 0, calendar: 0, contacts_status: "", calendar_status: "" };
+  }
+}
 
 // ── Snippets ────────────────────────────────────────────────────────────────
 export interface Snippet {
