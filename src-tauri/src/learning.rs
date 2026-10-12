@@ -1,13 +1,14 @@
 //! Personal learning: context vocabulary (external file, Contacts, Calendar), the
 //! recently-used / recently-learned term lists, and pattern suggestions. All
-//! state is local and in memory, except `suggestions.json` (text pairs only).
-//! Terms from here are never written to `dictionary.json`.
+//! state is local and in memory, except `suggestions.json` (text pairs only) and
+//! `recent-terms.json` (the two term lists, so the prompt ranking survives a
+//! restart). Terms from here are never written to `dictionary.json`.
 
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use whimpr_core::suggestions::{self, SuggestionStore};
 use whimpr_core::{CalTerm, ContextVocab, DictionaryStore, PromptInputs};
 
@@ -28,6 +29,38 @@ fn suggestions_path() -> PathBuf {
 }
 fn external_path() -> PathBuf {
     support_dir().join("vocab-extern.json")
+}
+fn recent_path() -> PathBuf {
+    support_dir().join("recent-terms.json")
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct RecentFile {
+    #[serde(default)]
+    recent: Vec<String>,
+    #[serde(default)]
+    learned: Vec<String>,
+}
+
+/// Restore both term lists from disk. Missing or broken file -> empty lists.
+fn load_recent() {
+    let Ok(s) = std::fs::read_to_string(recent_path()) else { return };
+    let Ok(mut f) = serde_json::from_str::<RecentFile>(&s) else { return };
+    f.recent.truncate(RECENT_CAP);
+    f.learned.truncate(RECENT_CAP);
+    *RECENT.lock().unwrap() = f.recent;
+    *LEARNED.lock().unwrap() = f.learned;
+}
+
+/// Write both term lists (tmp file + rename, so a crash never leaves half a file).
+fn save_recent() {
+    let f = RecentFile { recent: RECENT.lock().unwrap().clone(), learned: LEARNED.lock().unwrap().clone() };
+    let Ok(json) = serde_json::to_string(&f) else { return };
+    let path = recent_path();
+    let tmp = path.with_extension("json.tmp");
+    if std::fs::write(&tmp, json).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
 }
 
 fn sugg() -> &'static Mutex<SuggestionStore> {
@@ -75,6 +108,8 @@ pub fn note_learned(term: &str) {
     l.retain(|t| !t.eq_ignore_ascii_case(term));
     l.insert(0, term.to_string());
     l.truncate(RECENT_CAP);
+    drop(l);
+    save_recent();
 }
 
 // --- After each dictation: LRU of used terms + pattern counting --------------
@@ -102,6 +137,8 @@ pub fn observe_dictation(text: &str) {
                 r.insert(0, u);
             }
             r.truncate(RECENT_CAP);
+            drop(r);
+            save_recent();
         }
 
         // Pattern suggestions.
@@ -218,6 +255,7 @@ pub fn refresh_sources(ask: bool) {
 /// Start the background refresher. Safe to call once at startup.
 pub fn start() {
     let _ = sugg();
+    load_recent();
     reload_external();
     std::thread::spawn(|| {
         let mut ext_seen = external_mtime();

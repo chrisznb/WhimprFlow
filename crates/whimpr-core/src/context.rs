@@ -86,10 +86,11 @@ pub struct PromptInputs<'a> {
 
 impl DictionaryStore {
     /// Build the Whisper `initial_prompt` from all sources, highest priority first:
-    /// appointments today and tomorrow, recently learned terms, recently dictated
-    /// vocabulary, manual dictionary entries, then everything else. Entries that
-    /// have known mishears rank behind their group (`apply_spellings` catches
-    /// those anyway). Token cost is estimated as in `whisper_prompt`; a term that
+    /// appointments today and tomorrow, recently learned terms, entries with known
+    /// mishears, recently dictated vocabulary, manual dictionary entries, then
+    /// everything else. An entry with mishears is proof that Whisper struggles
+    /// with the word, so it ranks high: `apply_spellings` only repairs the exact
+    /// mishears it knows, not new variants. Token cost is estimated as in `whisper_prompt`; a term that
     /// does not fit is skipped so shorter ones can still use the budget.
     pub fn whisper_prompt_ranked(&self, inp: &PromptInputs, max_tokens: usize) -> Option<(String, usize)> {
         let mut ranked: Vec<&str> = Vec::new();
@@ -102,8 +103,11 @@ impl DictionaryStore {
             .collect();
         soon.sort_by_key(|c| c.start_unix);
         ranked.extend(soon.iter().map(|c| c.term.as_str()));
-        // 2 recently learned / accepted, then auto-learned dictionary entries (newest last in file)
+        // 2 recently learned / accepted
         ranked.extend(inp.learned.iter().map(|s| s.as_str()));
+        // 3 entries Whisper is known to get wrong (any source)
+        ranked.extend(self.entries.iter().filter(|e| !e.mishears.is_empty()).map(|e| e.correct.as_str()));
+        // 4 auto-learned dictionary entries (newest last in file)
         ranked.extend(
             self.entries
                 .iter()
@@ -111,13 +115,11 @@ impl DictionaryStore {
                 .filter(|e| e.source == DictSource::Auto)
                 .map(|e| e.correct.as_str()),
         );
-        // 3 recently dictated vocabulary
+        // 5 recently dictated vocabulary
         ranked.extend(inp.recent.iter().map(|s| s.as_str()));
-        // 4 manual entries: those without mishears first
-        let manual = || self.entries.iter().filter(|e| e.source == DictSource::Manual);
-        ranked.extend(manual().filter(|e| e.mishears.is_empty()).map(|e| e.correct.as_str()));
-        ranked.extend(manual().filter(|e| !e.mishears.is_empty()).map(|e| e.correct.as_str()));
-        // 5 the rest
+        // 6 remaining manual entries
+        ranked.extend(self.entries.iter().filter(|e| e.source == DictSource::Manual).map(|e| e.correct.as_str()));
+        // 7 the rest
         ranked.extend(self.entries.iter().filter(|e| e.source != DictSource::Manual).map(|e| e.correct.as_str()));
         ranked.extend(inp.vocab.calendar.iter().map(|c| c.term.as_str()));
         ranked.extend(inp.vocab.external.iter().map(|s| s.as_str()));
@@ -189,8 +191,22 @@ mod tests {
         let (p, _) = d.whisper_prompt_ranked(&inputs(&v, &learned, &recent), 500).unwrap();
         assert_eq!(
             p,
-            "TerminHeute, TerminSpaeter, Frisch, AutoGelernt, ZuletztBenutzt, ManuellA, ManuellMitHoer, TerminFern, Extern, Kontakt"
+            "TerminHeute, TerminSpaeter, Frisch, ManuellMitHoer, AutoGelernt, ZuletztBenutzt, ManuellA, TerminFern, Extern, Kontakt"
         );
+    }
+
+    #[test]
+    fn hard_words_survive_a_big_dictionary() {
+        // Regression 12.10.2026: with ~200 manual entries the ones with mishears
+        // fell out of the budget and "Lugu" came back as "Logo".
+        let mut d = DictionaryStore::default();
+        for i in 0..200 {
+            d.add(&format!("Eintrag{i:03}"), vec![], DictSource::Manual);
+        }
+        d.add("Lugu", vec!["Lügu".into()], DictSource::Manual);
+        let v = ContextVocab::default();
+        let (p, _) = d.whisper_prompt_ranked(&inputs(&v, &[], &[]), PROMPT_BUDGET).unwrap();
+        assert!(p.starts_with("Lugu, "), "{p}");
     }
 
     #[test]
