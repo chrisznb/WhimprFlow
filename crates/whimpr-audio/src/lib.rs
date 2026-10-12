@@ -206,9 +206,61 @@ pub fn resample_to_16k(input: &[f32], src_rate: u32) -> Vec<f32> {
     out
 }
 
+/// Milliseconds of 16 kHz audio that sound like a voice: 30 ms frames whose
+/// loudness clearly rises above this recording's own noise floor. A key click
+/// or room hum stays below; real speech, even quiet, counts. Used to skip
+/// transcription entirely when nothing was said (Whisper invents "Thank you"
+/// on silence).
+pub fn speech_ms(pcm16k: &[f32]) -> u32 {
+    const FRAME: usize = 480; // 30 ms at 16 kHz
+    let mut rms: Vec<f32> = pcm16k
+        .chunks(FRAME)
+        .filter(|c| c.len() == FRAME)
+        .map(|c| (c.iter().map(|s| s * s).sum::<f32>() / FRAME as f32).sqrt())
+        .collect();
+    if rms.is_empty() {
+        return 0;
+    }
+    let loud: Vec<f32> = rms.clone();
+    rms.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // Quietest fifth of the recording = background noise.
+    let floor = rms[rms.len() / 5];
+    // Capped, so a recording that is speech from start to end (no quiet part
+    // to measure the floor) never pushes the bar above normal voice levels.
+    let threshold = (floor * 4.0).clamp(0.006, 0.02);
+    loud.iter().filter(|&&r| r > threshold).count() as u32 * 30
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tone(ms: usize, amp: f32) -> Vec<f32> {
+        (0..ms * 16).map(|i| amp * (i as f32 * 0.07).sin()).collect()
+    }
+
+    #[test]
+    fn silence_and_a_click_are_not_speech() {
+        let mut pcm = vec![0.001f32; 16_000 * 2];
+        // A 20 ms key click in the middle.
+        for s in &mut pcm[16_000..16_320] {
+            *s = 0.3;
+        }
+        assert!(speech_ms(&pcm) < 300);
+    }
+
+    #[test]
+    fn continuous_speech_without_pauses_counts() {
+        assert!(speech_ms(&tone(1500, 0.08)) >= 1200);
+    }
+
+    #[test]
+    fn quiet_speech_counts() {
+        let mut pcm = vec![0.001f32; 16_000];
+        pcm.extend(tone(800, 0.03));
+        pcm.extend(vec![0.001f32; 8_000]);
+        assert!(speech_ms(&pcm) >= 600);
+    }
 
     #[test]
     fn resample_48k_to_16k_thirds_the_length() {

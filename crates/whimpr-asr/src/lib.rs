@@ -2,6 +2,21 @@
 //! [`whimpr_core::AsrEngine`]. Expects 16 kHz mono f32 samples.
 
 use std::path::Path;
+use std::sync::Mutex;
+
+/// Spoken-language hint used by every transcription: "auto", "de", "en", ...
+static LANGUAGE: Mutex<String> = Mutex::new(String::new());
+
+/// Set the language hint. "auto" (or anything empty) lets Whisper detect it,
+/// which costs a second pass through the model.
+pub fn set_language(lang: &str) {
+    *LANGUAGE.lock().unwrap() = lang.trim().to_lowercase();
+}
+
+fn language() -> String {
+    let l = LANGUAGE.lock().unwrap().clone();
+    if l.is_empty() { "auto".to_string() } else { l }
+}
 
 use whimpr_core::asr::{AsrCaps, AsrEngine, AsrEngineId, Transcript};
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -44,8 +59,10 @@ impl AsrEngine for WhisperEngine {
             .map_err(|e| anyhow::anyhow!("whisper create_state: {e}"))?;
 
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        // Auto-detect per utterance — mixed German/English dictation.
-        params.set_language(Some("auto"));
+        // "auto" detects per utterance (extra pass); a fixed language is ~2x
+        // faster and still keeps English words in German dictation.
+        let lang = language();
+        params.set_language(Some(&lang));
         params.set_translate(false);
         params.set_print_special(false);
         params.set_print_progress(false);
@@ -58,6 +75,22 @@ impl AsrEngine for WhisperEngine {
         // producing the sentence twice. Single-segment mode avoids that.
         params.set_single_segment(true);
         params.set_no_context(true);
+
+        // whisper.cpp silently returns nothing for input under 1 s ("input is
+        // too short"), which swallowed quick one-word dictations like "Ja".
+        // Pad short clips with silence on both sides up to 1.25 s.
+        const MIN_SAMPLES: usize = 20_000; // 1.25 s at 16 kHz
+        let padded;
+        let pcm16k = if pcm16k.len() < MIN_SAMPLES {
+            let pad = MIN_SAMPLES - pcm16k.len();
+            let mut v = vec![0.0f32; pad / 2];
+            v.extend_from_slice(pcm16k);
+            v.resize(MIN_SAMPLES, 0.0);
+            padded = v;
+            &padded[..]
+        } else {
+            pcm16k
+        };
 
         state
             .full(params, pcm16k)
