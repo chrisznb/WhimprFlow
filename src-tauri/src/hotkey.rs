@@ -630,7 +630,7 @@ return acted"#,
     /// only at startup, so the term count is logged once.
     fn sync_asr_prompt(store: &whimpr_core::DictionaryStore, log: bool) {
         // Whisper takes ~224 prompt tokens; stay well below.
-        match store.whisper_prompt(180) {
+        match crate::learning::build_prompt(store, whimpr_core::context::PROMPT_BUDGET) {
             Some((p, n)) => {
                 whimpr_asr::set_initial_prompt(&p);
                 if log {
@@ -641,6 +641,15 @@ return acted"#,
                 }
             }
             None => whimpr_asr::set_initial_prompt(""),
+        }
+    }
+
+    /// Rebuild the Whisper prompt from current data (dictation start, so
+    /// appointments and recently used terms are fresh). In-memory only.
+    pub fn refresh_prompt() {
+        if let Some(m) = DICTIONARY.get() {
+            let store = m.lock().unwrap();
+            sync_asr_prompt(&store, false);
         }
     }
 
@@ -670,6 +679,7 @@ return acted"#,
     pub fn dictionary_learn(correct: String, mishears: Vec<String>) {
         if let Some(m) = DICTIONARY.get() {
             let mut store = m.lock().unwrap();
+            crate::learning::note_learned(&correct);
             store.add(correct, mishears, whimpr_core::DictSource::Auto);
             let _ = store.save(&dict_path());
             sync_asr_prompt(&store, false);
@@ -731,8 +741,14 @@ return acted"#,
     }
     /// Apply new settings and rebuild the cloud providers (picks up model changes).
     pub fn update_settings(new: whimpr_core::Settings) {
+        let mut sources_changed = false;
         if let Some(m) = SETTINGS.get() {
-            *m.lock().unwrap() = new.clone();
+            let mut cur = m.lock().unwrap();
+            sources_changed = cur.use_contacts != new.use_contacts || cur.use_calendar != new.use_calendar;
+            *cur = new.clone();
+        }
+        if sources_changed {
+            std::thread::spawn(|| crate::learning::refresh_sources(true));
         }
         whimpr_asr::set_language(&new.asr_language);
         let _ = new.save(&settings_path());
@@ -1180,7 +1196,10 @@ return acted"#,
             }
             // Start the microphone; stream real RMS bars to the pill waveform.
             // Runs off the tap thread so the mic-permission prompt can't stall keys.
-            Action::StartCapture { .. } => audio_send(AudioCmd::Start(app.clone())),
+            Action::StartCapture { .. } => {
+                refresh_prompt();
+                audio_send(AudioCmd::Start(app.clone()))
+            }
             // Stop the mic, transcribe the buffered audio, and advance the machine.
             Action::StopCaptureAndFinalize { session } => {
                 let app2 = app.clone();
@@ -1411,6 +1430,7 @@ return acted"#,
                                 record_dictation(&text, res.duration_secs());
                                 // Watch the field for a post-paste correction to learn (✨).
                                 crate::autolearn::watch_correction(&text);
+                                crate::learning::observe_dictation(&text);
                             }
                             let _ = app2.emit_to(
                                 OVERLAY_LABEL,
@@ -2832,6 +2852,7 @@ Rules: only include actions the user clearly asked for; use an empty actions arr
         let _ = SETTINGS.set(Mutex::new(settings));
         let _ = DICTIONARY.set(Mutex::new(dict));
         let _ = STATS.set(Mutex::new(whimpr_core::StatsStore::load(&stats_path())));
+        crate::learning::start();
 
         // Snippets: seed a self-explanatory example on first run.
         let mut snips = whimpr_core::SnippetStore::load(&snippets_path());

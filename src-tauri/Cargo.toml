@@ -33,6 +33,7 @@ tauri-plugin-notification = "2.3.3"
 # one so the build does not depend on what macOS happens to ship, and the
 # database is only ever opened read-only.
 rusqlite = { version = "0.32", features = ["bundled"] }
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 # Windows platform layer (low-level keyboard hook, SendInput paste, foreground-app
@@ -54,3 +55,6 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSWorkspace", "NSRunningApplication"] }
 objc2-foundation = { version = "0.3", features = ["NSString"] }
 objc2-av-foundation = { version = "0.3", features = ["AVCaptureDevice", "AVMediaFormat"] }
+objc2-contacts = "0.3"
+objc2-event-kit = "0.3"
+block2 = "0.6"

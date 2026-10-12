@@ -146,6 +146,13 @@ pub struct Settings {
     /// UI language: "system" (default), "de", or "en".
     #[serde(default = "default_language")]
     pub language: String,
+    /// Use names from Apple Contacts as Whisper hints (active once permitted).
+    #[serde(default = "default_true")]
+    pub use_contacts: bool,
+    /// Use upcoming calendar events (titles, attendees) as Whisper hints
+    /// (active once permitted).
+    #[serde(default = "default_true")]
+    pub use_calendar: bool,
 }
 
 fn default_language() -> String {
@@ -191,6 +198,8 @@ impl Default for Settings {
             dictation_hotkey: String::new(),
             typing_wpm: default_typing_wpm(),
             language: default_language(),
+            use_contacts: true,
+            use_calendar: true,
         }
     }
 }

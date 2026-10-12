@@ -11,15 +11,20 @@
 
 pub mod asr;
 pub mod cleanup;
+pub mod common_words;
+pub mod context;
 pub mod dictionary;
+pub mod phonetics;
 pub mod settings;
 pub mod snippets;
 pub mod state;
 pub mod stats;
+pub mod suggestions;
 pub mod types;
 
 pub use asr::{AsrEngine, AsrEngineId, Transcript};
 pub use cleanup::{CleanupContext, CleanupLevel, CleanupProvider, ProviderId, VocabEntry};
+pub use context::{CalTerm, ContextVocab, PromptInputs};
 pub use dictionary::{DictSource, DictionaryEntry, DictionaryStore};
 pub use settings::{AsrMode, CleanupMode, Settings, StyleLevel, StylePrefs};
 pub use snippets::{Snippet, SnippetStore};

@@ -8,6 +8,7 @@
 
 mod appctx;
 mod autolearn;
+mod learning;
 mod hotkey;
 mod local_llm;
 mod paste;
@@ -681,6 +682,28 @@ fn remove_dictionary_entry(correct: String) {
     hotkey::dictionary_remove(&correct);
 }
 
+/// Pattern suggestions that reached the threshold ("X always means Y?").
+#[tauri::command]
+fn get_suggestions() -> Vec<learning::SuggestionDto> {
+    learning::pending_suggestions()
+}
+
+#[tauri::command]
+fn accept_suggestion(heard: String, correct: String) {
+    learning::accept_suggestion(&heard, &correct);
+}
+
+#[tauri::command]
+fn reject_suggestion(heard: String, correct: String) {
+    learning::reject_suggestion(&heard, &correct);
+}
+
+/// How many external terms are loaded, and the Contacts/Calendar permission state.
+#[tauri::command]
+fn get_context_info() -> learning::ContextInfo {
+    learning::context_info()
+}
+
 /// Permission + capability status shown in the Hub.
 #[derive(Clone, Serialize)]
 struct StatusReport {
@@ -846,6 +869,10 @@ pub fn run() {
             get_dictionary,
             add_dictionary_entry,
             remove_dictionary_entry,
+            get_suggestions,
+            accept_suggestion,
+            reject_suggestion,
+            get_context_info,
             get_status,
             request_microphone,
             request_accessibility,

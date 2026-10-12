@@ -1,6 +1,7 @@
 //! Transcribe a 16 kHz mono WAV with the local whisper engine.
-//! Usage: cargo run -p whimpr-asr --example transcribe -- <model.bin> <audio.wav> [dictionary.json]
-//! With a dictionary, the file is transcribed twice: without and with the Whisper prompt.
+//! Usage: cargo run -p whimpr-asr --example transcribe -- <model.bin> <audio.wav> [dictionary.json] [vocab-extern.json]
+//! With a dictionary, the file is transcribed three times: without a prompt, with the
+//! plain dictionary prompt, and (with an external vocabulary) with the ranked prompt.
 
 use std::path::Path;
 
@@ -38,10 +39,32 @@ fn main() -> anyhow::Result<()> {
         let store = whimpr_core::DictionaryStore::load(Path::new(dict));
         if let Some((prompt, n)) = store.whisper_prompt(180) {
             whimpr_asr::set_initial_prompt(&prompt);
-            println!("PROMPT: {n} terms");
+            println!("PROMPT(old): {n} terms: {prompt}");
             let t0 = std::time::Instant::now();
             let t = engine.transcribe(&pcm)?;
-            println!("TRANSCRIPT+PROMPT: {}  ({:?})", t.text, t0.elapsed());
+            println!("TRANSCRIPT+PROMPT(old): {}  ({:?})", t.text, t0.elapsed());
+        }
+        let mut vocab = whimpr_core::ContextVocab::default();
+        if let Some(ext) = args.get(4) {
+            vocab.external = whimpr_core::context::load_external(Path::new(ext)).unwrap_or_default();
+        }
+        let now = 0i64;
+        // WHIMPR_CAL="A,B" simulates today's appointments, WHIMPR_RECENT="C,D" recently dictated terms.
+        let env_list = |k: &str| -> Vec<String> {
+            std::env::var(k).unwrap_or_default().split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+        };
+        vocab.calendar = env_list("WHIMPR_CAL")
+            .into_iter()
+            .map(|term| whimpr_core::CalTerm { term, start_unix: 1 })
+            .collect();
+        let recent = env_list("WHIMPR_RECENT");
+        let inp = whimpr_core::PromptInputs { vocab: &vocab, learned: &[], recent: &recent, now, soon_until: 100 };
+        if let Some((prompt, n)) = store.whisper_prompt_ranked(&inp, whimpr_core::context::PROMPT_BUDGET) {
+            whimpr_asr::set_initial_prompt(&prompt);
+            println!("PROMPT(new): {n} terms: {prompt}");
+            let t0 = std::time::Instant::now();
+            let t = engine.transcribe(&pcm)?;
+            println!("TRANSCRIPT+PROMPT(new): {}  ({:?})", t.text, t0.elapsed());
         }
     }
     Ok(())

@@ -1,11 +1,12 @@
 //! Auto-learn: after WhimprFlow pastes dictated text, watch the focused text field
-//! for a few seconds. If the user corrects a single distinctive word (typically a
-//! mis-heard name), diff it out and add it to the dictionary — so next time ASR/
-//! cleanup spell it right. This is the signal source Wispr's ✨ sparkle needs.
+//! (polled every 2 s for up to 30 s, the last stable state wins). If the user
+//! corrects a distinctive name (1-3 words replaced by 1-3 words, e.g. "Heinz App"
+//! -> "HeinsApp"), diff it out and add it to the dictionary - so next time ASR/
+//! cleanup spell it right. This is the signal source Wispr's sparkle needs.
 //!
-//! It is deliberately conservative: it only learns on a clean one-word substitution
-//! into an otherwise-unchanged field, where the new word looks like a proper noun
-//! and is phonetically close to the word it replaced. That avoids poisoning the
+//! It is deliberately conservative: it only learns on one contiguous substitution
+//! inside the dictated text with the rest of the field unchanged, where the new
+//! words look like a proper noun and are phonetically close to what they replaced. That avoids poisoning the
 //! dictionary with common-word edits. Reads use the Accessibility API and only run
 //! when Accessibility is granted.
 
@@ -20,8 +21,9 @@ mod imp {
     type AXUIElementRef = *const c_void;
 
     const KCF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
-    /// How long to wait after paste before checking for a correction.
-    const OBSERVE_DELAY: Duration = Duration::from_secs(7);
+    /// Poll interval and overall observation window after a paste.
+    const POLL_EVERY: Duration = Duration::from_secs(2);
+    const POLL_MAX: Duration = Duration::from_secs(30);
 
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
@@ -35,6 +37,7 @@ mod imp {
         fn CFStringGetCString(s: CFStringRef, buf: *mut c_char, size: isize, encoding: u32) -> bool;
         fn CFStringGetMaximumSizeForEncoding(len: isize, encoding: u32) -> isize;
         fn CFGetTypeID(cf: CFTypeRef) -> usize;
+        fn CFEqual(a: CFTypeRef, b: CFTypeRef) -> bool;
         fn CFStringGetTypeID() -> usize;
     }
 
@@ -119,8 +122,10 @@ mod imp {
     struct SendPtr(AXUIElementRef);
     unsafe impl Send for SendPtr {}
 
-    /// Right after paste, snapshot the focused field, then check it once after a
-    /// short delay for a one-word correction to learn.
+    /// Right after paste, watch the focused field: poll every 2 s for up to 30 s.
+    /// The baseline is the first reading that contains the inserted text. The
+    /// result is judged on the last stable state: two identical readings after a
+    /// change, or the last reading when the field loses focus / disappears.
     pub fn watch_correction(inserted: &str) {
         // Reads require Accessibility; also skip trivial dictations.
         if !crate::paste::is_trusted() || crate::autolearn::word_tokens(inserted).len() < 2 {
@@ -136,11 +141,44 @@ mod imp {
             // Force whole-struct capture (2021 disjoint captures would otherwise grab
             // the raw pointer field and lose the `Send` impl on `SendPtr`).
             let holder = holder;
-            std::thread::sleep(OBSERVE_DELAY);
-            let after = unsafe { element_value(holder.0) };
+            let mut baseline: Option<String> = None;
+            let mut last: Option<String> = None;
+            let mut waited = Duration::ZERO;
+            loop {
+                let now = unsafe { element_value(holder.0) };
+                let Some(now) = now else { break }; // field is gone
+                if baseline.is_none() {
+                    if super::contains_tokens(&now, &inserted) {
+                        baseline = Some(now.clone());
+                    }
+                } else if Some(&now) != baseline.as_ref() {
+                    let stable = last.as_ref() == Some(&now);
+                    last = Some(now);
+                    if stable {
+                        break; // changed, then unchanged for one full interval
+                    }
+                } else if last.is_some() {
+                    // Went back to the baseline (undo): nothing to learn.
+                    last = None;
+                }
+                // Focus moved elsewhere: judge on what we have.
+                let still_focused = unsafe {
+                    let cur = copy_focused_element();
+                    let same = !cur.is_null() && CFEqual(cur, holder.0);
+                    if !cur.is_null() {
+                        CFRelease(cur);
+                    }
+                    same
+                };
+                if !still_focused || waited >= POLL_MAX {
+                    break;
+                }
+                std::thread::sleep(POLL_EVERY);
+                waited += POLL_EVERY;
+            }
             unsafe { CFRelease(holder.0) };
-            let Some(after) = after else { return };
-            if let Some((mishear, correct)) = super::detect_correction(&inserted, &after) {
+            let (Some(before), Some(after)) = (baseline, last) else { return };
+            if let Some((mishear, correct)) = super::detect_field_correction(&inserted, &before, &after) {
                 eprintln!("[whimpr] ✨ auto-learned: \"{mishear}\" -> \"{correct}\"");
                 crate::hotkey::dictionary_learn(correct, vec![mishear]);
             }
@@ -165,66 +203,78 @@ pub fn word_tokens(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// Very common words we never learn as a "correction" — avoids dictionary poisoning
-/// from ordinary edits (their/there, your/you're, then/than, sentence rewording…).
-const COMMON: &[&str] = &[
-    "the", "and", "for", "are", "but", "not", "you", "your", "youre", "with", "this", "that",
-    "have", "from", "they", "theyre", "their", "there", "would", "could", "should", "about",
-    "then", "than", "them", "these", "those", "here", "were", "well", "will", "what", "when",
-    "where", "which", "while", "your", "into", "just", "like", "make", "made", "want", "some",
-    "time", "know", "take", "come", "back", "good", "much", "also", "been", "over", "only",
-    "more", "most", "very", "even", "such", "many", "does", "done", "same", "sure", "okay",
-    "yeah", "hey", "hello", "please", "thanks", "thank", "message", "email", "text", "call",
-];
-
-/// Detect a single clean one-word correction: exactly one word removed from the
-/// inserted text and one word added in the field, both distinctive and phonetically
-/// close, with the new word looking like a proper noun. Returns `(mishear, correct)`.
+/// Detect a single clean correction of 1-3 words by 1-3 words. Both texts are the
+/// dictated text as inserted / as it stands now. Returns `(mishear, correct)`.
 pub fn detect_correction(inserted: &str, after: &str) -> Option<(String, String)> {
-    use std::collections::HashSet;
+    detect_field_correction(inserted, inserted, after)
+}
+
+/// Same, for a whole text field: `before` is the field right after the paste (it
+/// contains `inserted`), `after` its current content. The change must be one
+/// contiguous substitution, lying inside the dictated text; everything else in the
+/// field is unchanged by construction.
+pub fn detect_field_correction(inserted: &str, before: &str, after: &str) -> Option<(String, String)> {
     let ins = word_tokens(inserted);
+    let bef = word_tokens(before);
     let aft = word_tokens(after);
-    if ins.is_empty() || aft.is_empty() {
+    if ins.is_empty() || bef.is_empty() || aft.is_empty() {
         return None;
     }
-    let ins_lc: HashSet<String> = ins.iter().map(|w| w.to_lowercase()).collect();
-    let aft_lc: HashSet<String> = aft.iter().map(|w| w.to_lowercase()).collect();
-
-    let removed: Vec<&String> = ins.iter().filter(|w| !aft_lc.contains(&w.to_lowercase())).collect();
-    let added: Vec<&String> = aft.iter().filter(|w| !ins_lc.contains(&w.to_lowercase())).collect();
-    if removed.len() != 1 || added.len() != 1 {
-        return None; // only learn on a clean 1-for-1 swap
+    let eq = |a: &String, b: &String| a.to_lowercase() == b.to_lowercase();
+    // Longest common prefix / suffix; the middle is the substitution.
+    let mut p = 0;
+    while p < bef.len() && p < aft.len() && eq(&bef[p], &aft[p]) {
+        p += 1;
     }
-    let mishear = removed[0].clone();
-    let correct = added[0].clone();
-
-    let alpha = |w: &str| w.chars().all(|c| c.is_alphabetic());
-    if mishear.chars().count() < 3 || correct.chars().count() < 3 {
+    let mut s = 0;
+    while s < bef.len() - p && s < aft.len() - p && eq(&bef[bef.len() - 1 - s], &aft[aft.len() - 1 - s]) {
+        s += 1;
+    }
+    let removed = &bef[p..bef.len() - s];
+    let added = &aft[p..aft.len() - s];
+    if removed.is_empty() || added.is_empty() || removed.len() > 3 || added.len() > 3 {
         return None;
     }
-    if !alpha(&mishear) || !alpha(&correct) {
+    // The replaced words must come from the dictated text (a contiguous run).
+    let in_ins = ins.windows(removed.len()).any(|w| w.iter().zip(removed).all(|(a, b)| eq(a, b)));
+    if !in_ins {
         return None;
     }
-    if correct.eq_ignore_ascii_case(&mishear) {
+    let alpha = |ws: &[String]| ws.iter().all(|w| w.chars().all(|c| c.is_alphabetic()));
+    if !alpha(removed) || !alpha(added) {
         return None;
     }
-    if is_common(&correct) || is_common(&mishear) {
+    let mishear = removed.join(" ");
+    let correct = added.join(" ");
+    let (mj, cj) = (removed.concat(), added.concat());
+    if mj.chars().count() < 3 || cj.chars().count() < 3 || mj.to_lowercase() == cj.to_lowercase() {
+        return None;
+    }
+    // Never learn ordinary words, nor a replacement made only of ordinary words.
+    if is_common(&cj) || removed.iter().all(|w| is_common(w)) || added.iter().all(|w| is_common(w)) {
         return None;
     }
     // The correction should look like a name (Titlecase) and be phonetically close
     // to what it replaced (a real mishear, not an unrelated rewrite).
-    let titled = correct.chars().next().is_some_and(|c| c.is_uppercase());
-    let d = norm_levenshtein(&mishear, &correct);
-    if titled && d > 0.0 && d <= 0.6 {
+    let titled = added[0].chars().next().is_some_and(|c| c.is_uppercase());
+    let d = norm_levenshtein(&mj, &cj);
+    let sounds_alike = whimpr_core::phonetics::cologne(&mj) == whimpr_core::phonetics::cologne(&cj);
+    if titled && (d <= 0.6 || sounds_alike) {
         Some((mishear, correct))
     } else {
         None
     }
 }
 
+/// True if the words of `needle` appear contiguously (case-insensitive) in `hay`.
+pub fn contains_tokens(hay: &str, needle: &str) -> bool {
+    let h: Vec<String> = word_tokens(hay).iter().map(|w| w.to_lowercase()).collect();
+    let n: Vec<String> = word_tokens(needle).iter().map(|w| w.to_lowercase()).collect();
+    !n.is_empty() && h.windows(n.len()).any(|w| w == n.as_slice())
+}
+
 fn is_common(w: &str) -> bool {
-    let lc = w.to_lowercase();
-    COMMON.contains(&lc.as_str())
+    whimpr_core::common_words::is_common_word(w)
 }
 
 /// Levenshtein distance normalized by the longer length (0 = identical, 1 = totally
@@ -266,6 +316,43 @@ mod tests {
     fn ignores_unrelated_replacement() {
         // Not phonetically close → not a mishear.
         assert_eq!(detect_correction("ping the server foo", "ping the server Xylophone"), None);
+    }
+
+    #[test]
+    fn learns_split_to_joined_name() {
+        let got = detect_correction("Wir bauen die Heinz App weiter", "Wir bauen die HeinsApp weiter");
+        assert_eq!(got, Some(("Heinz App".to_string(), "HeinsApp".to_string())));
+    }
+
+    #[test]
+    fn learns_two_words_to_two_words() {
+        let got = detect_correction("Termin mit Teigen Karbon morgen", "Termin mit Teijin Carbon morgen");
+        assert_eq!(got, Some(("Teigen Karbon".to_string(), "Teijin Carbon".to_string())));
+    }
+
+    #[test]
+    fn rest_of_field_must_be_unchanged() {
+        // Two separate edits -> ambiguous, skip.
+        assert_eq!(
+            detect_correction("Heinz App und Teigen Karbon", "HeinsApp und Teijin Carbon"),
+            None
+        );
+    }
+
+    #[test]
+    fn four_words_are_too_many() {
+        assert_eq!(detect_correction("a b c d Wort", "Wuerzburg Xylon Quarz Olympia Wort"), None);
+    }
+
+    #[test]
+    fn field_with_surrounding_text() {
+        let before = "Hallo Chris, wir bauen die Heinz App weiter. Gruss";
+        let after = "Hallo Chris, wir bauen die HeinsApp weiter. Gruss";
+        let got = detect_field_correction("wir bauen die Heinz App weiter", before, after);
+        assert_eq!(got, Some(("Heinz App".to_string(), "HeinsApp".to_string())));
+        // An edit outside the dictated text is not ours to learn from.
+        let after2 = "Hallo Chrisse, wir bauen die Heinz App weiter. Gruss";
+        assert_eq!(detect_field_correction("wir bauen die Heinz App weiter", before, after2), None);
     }
 
     #[test]
