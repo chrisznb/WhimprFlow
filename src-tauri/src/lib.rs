@@ -417,26 +417,42 @@ fn debug_log(line: &str) {
 /// the opt-in self chat export. At startup and then every 30 minutes, so the
 /// files are fresh without the Hub ever being opened. Does nothing without
 /// access to WhatsApp's data.
+///
+/// When voice messages are left over (the model was still loading, the user
+/// was dictating, or there are more than one pass takes), the next pass comes
+/// after 2 minutes instead. At most `MAX_QUICK` of those in a row, so a model
+/// that never loads cannot keep the loop busy.
 fn spawn_whatsapp_sync() {
+    const NORMAL: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+    const QUICK: std::time::Duration = std::time::Duration::from_secs(2 * 60);
+    const MAX_QUICK: u32 = 10;
     std::thread::spawn(|| {
         // Voice messages that failed to transcribe in this run; retried after
         // the next app start rather than every 30 minutes.
         let mut failed = std::collections::HashSet::new();
+        let mut quick_in_a_row = 0u32;
         loop {
+            let mut left_over = false;
             if whatsapp::access() == whatsapp::Access::Ok {
                 match whatsapp::sync_meta() {
                     Ok(n) if n > 0 => debug_log(&format!("wa_sync: meta for {n} transcripts")),
                     Ok(_) => {}
                     Err(e) => debug_log(&format!("wa_sync: meta failed: {e}")),
                 }
-                transcribe_self_chat(&mut failed);
+                left_over = transcribe_self_chat(&mut failed);
                 match whatsapp::export_self_chat() {
                     Ok(Some(n)) => debug_log(&format!("wa_sync: self chat, {n} messages")),
                     Ok(None) => {}
                     Err(e) => debug_log(&format!("wa_sync: self chat failed: {e}")),
                 }
             }
-            std::thread::sleep(std::time::Duration::from_secs(30 * 60));
+            if left_over && quick_in_a_row < MAX_QUICK {
+                quick_in_a_row += 1;
+                std::thread::sleep(QUICK);
+            } else {
+                quick_in_a_row = 0;
+                std::thread::sleep(NORMAL);
+            }
         }
     });
 }
@@ -444,26 +460,28 @@ fn spawn_whatsapp_sync() {
 /// Transcribe a few voice messages of the self chat that have no transcript
 /// yet, so the export carries text instead of gaps. Only the configured self
 /// chat, never another one, and only with the local model: no audio leaves the
-/// machine without the user asking for it. At most `PER_PASS` per run, and only while the
-/// speech engine is free: before each message it checks that the user is not
-/// dictating and nothing else is being transcribed, and otherwise leaves the
-/// rest for the next pass.
-fn transcribe_self_chat(failed: &mut std::collections::HashSet<i64>) {
+/// machine without the user asking for it. At most `PER_PASS` per run, and
+/// only while the speech engine is free: before each message it checks that
+/// the user is not dictating and nothing else is being transcribed, and
+/// otherwise leaves the rest for the next pass.
+///
+/// Returns whether voice messages are left for the next pass, so the caller
+/// can come back sooner.
+fn transcribe_self_chat(failed: &mut std::collections::HashSet<i64>) -> bool {
     const PER_PASS: usize = 5;
-    if !hotkey::asr_free_for_background() {
-        return;
-    }
     let pending = match whatsapp::self_chat_untranscribed(PER_PASS, failed) {
         Ok(p) => p,
         Err(e) => {
             debug_log(&format!("wa_sync: self chat voice lookup failed: {e}"));
-            return;
+            return false;
         }
     };
+    // A full batch means there may be more behind it.
+    let mut left_over = pending.len() == PER_PASS;
     let mut done = 0usize;
     for v in pending {
         if !hotkey::asr_free_for_background() {
-            debug_log("wa_sync: speech engine busy, rest next pass");
+            left_over = true;
             break;
         }
         match hotkey::transcribe_audio_file_local(&v.path) {
@@ -480,6 +498,7 @@ fn transcribe_self_chat(failed: &mut std::collections::HashSet<i64>) {
     if done > 0 {
         debug_log(&format!("wa_sync: transcribed {done} self chat voice messages"));
     }
+    left_over
 }
 
 #[tauri::command]
