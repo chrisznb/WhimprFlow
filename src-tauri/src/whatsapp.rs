@@ -41,7 +41,7 @@
 //! (`group.net.whatsapp.WhatsAppSMB.shared`) exists but stays empty unless the
 //! native Business app is installed.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -799,6 +799,81 @@ pub fn export_self_chat() -> Result<Option<usize>, String> {
     Ok(Some(count))
 }
 
+// --- background transcription of the self chat -----------------------------
+
+/// A voice message of the self chat that has no transcript yet.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingVoice {
+    /// The media row id, the transcript cache's key.
+    pub media_id: i64,
+    /// Absolute path to the .opus file.
+    pub path: String,
+}
+
+/// Up to `limit` voice messages of the configured self chat that still lack a
+/// transcript, newest first so the current week fills in before the backlog.
+/// Empty when the export is not configured.
+///
+/// Only ever the self chat: the same `check_is_self_chat` gate as the export,
+/// and the query reads nothing but rows of that chat sent by the user. `skip`
+/// holds ids that failed earlier in this run, so one broken file cannot block
+/// the queue. Messages whose audio was never downloaded are passed over; they
+/// come up again once WhatsApp has the file.
+pub fn self_chat_untranscribed(
+    limit: usize,
+    skip: &HashSet<i64>,
+) -> Result<Vec<PendingVoice>, String> {
+    let jid = export_config().self_chat_jid.trim().to_string();
+    if jid.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let db = open_db()?;
+    let candidates = untranscribed_voice(&db, &jid, &load_cache(), skip)?;
+    Ok(candidates
+        .into_iter()
+        .filter_map(|(media_id, stored)| {
+            resolve_media(&stored).map(|path| PendingVoice { media_id, path })
+        })
+        .take(limit)
+        .collect())
+}
+
+/// Media id and stored path of every voice message the user sent to the self
+/// chat that is neither in `cache` nor in `skip`, newest first. Refuses a chat
+/// that is not the chat with oneself.
+fn untranscribed_voice(
+    db: &rusqlite::Connection,
+    jid: &str,
+    cache: &HashMap<String, String>,
+    skip: &HashSet<i64>,
+) -> Result<Vec<(i64, String)>, String> {
+    // Same snapshot for the check and the read, as in the export.
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    check_is_self_chat(&tx, jid)?;
+    let mut stmt = tx
+        .prepare(
+            "SELECT mi.Z_PK, mi.ZMEDIALOCALPATH
+             FROM ZWAMEDIAITEM mi
+             JOIN ZWAMESSAGE m ON mi.ZMESSAGE = m.Z_PK
+             JOIN ZWACHATSESSION cs ON m.ZCHATSESSION = cs.Z_PK
+             WHERE cs.ZCONTACTJID = ?1 AND m.ZISFROMME = 1
+               AND mi.ZMEDIALOCALPATH LIKE '%.opus'
+             ORDER BY m.ZMESSAGEDATE DESC",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([jid], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .map_err(|e| e.to_string())?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, stored) = row.map_err(|e| e.to_string())?;
+        if !cache.contains_key(&id.to_string()) && !skip.contains(&id) {
+            out.push((id, stored));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -875,6 +950,73 @@ mod tests {
             let _ = std::fs::write(cache_path(), json);
         }
     }
+
+    /// The few ChatStorage columns the self chat queries touch, in memory.
+    fn fake_chat_storage() -> rusqlite::Connection {
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE ZWACHATSESSION (Z_PK INTEGER PRIMARY KEY, ZCONTACTJID TEXT,
+                 ZPARTNERNAME TEXT, ZSESSIONTYPE INTEGER);
+             CREATE TABLE ZWAMESSAGE (Z_PK INTEGER PRIMARY KEY, ZCHATSESSION INTEGER,
+                 ZISFROMME INTEGER, ZMESSAGEDATE REAL, ZTEXT TEXT);
+             CREATE TABLE ZWAMEDIAITEM (Z_PK INTEGER PRIMARY KEY, ZMESSAGE INTEGER,
+                 ZMEDIALOCALPATH TEXT, ZMOVIEDURATION REAL);
+             -- 1: chat with oneself, 2: a real conversation.
+             INSERT INTO ZWACHATSESSION VALUES (1, 'me@s.whatsapp.net', 'Ich', 0);
+             INSERT INTO ZWACHATSESSION VALUES (2, 'friend@s.whatsapp.net', 'Freund', 0);
+             -- Self chat: three voice messages, one typed note, one photo.
+             INSERT INTO ZWAMESSAGE VALUES (10, 1, 1, 100.0, NULL);
+             INSERT INTO ZWAMESSAGE VALUES (11, 1, 1, 200.0, NULL);
+             INSERT INTO ZWAMESSAGE VALUES (12, 1, 1, 300.0, NULL);
+             INSERT INTO ZWAMESSAGE VALUES (13, 1, 1, 400.0, 'Notiz');
+             INSERT INTO ZWAMESSAGE VALUES (14, 1, 1, 500.0, NULL);
+             INSERT INTO ZWAMEDIAITEM VALUES (110, 10, 'Media/a.opus', 3.0);
+             INSERT INTO ZWAMEDIAITEM VALUES (111, 11, 'Media/b.opus', 4.0);
+             INSERT INTO ZWAMEDIAITEM VALUES (112, 12, 'Media/c.opus', 5.0);
+             INSERT INTO ZWAMEDIAITEM VALUES (114, 14, 'Media/d.jpg', 0.0);
+             -- The friend's chat: a voice message from each side.
+             INSERT INTO ZWAMESSAGE VALUES (20, 2, 1, 150.0, NULL);
+             INSERT INTO ZWAMESSAGE VALUES (21, 2, 0, 250.0, NULL);
+             INSERT INTO ZWAMEDIAITEM VALUES (120, 20, 'Media/e.opus', 6.0);
+             INSERT INTO ZWAMEDIAITEM VALUES (121, 21, 'Media/f.opus', 7.0);",
+        )
+        .unwrap();
+        db
+    }
+
+    #[test]
+    fn untranscribed_lists_only_open_self_chat_voice_newest_first() {
+        let db = fake_chat_storage();
+        let mut cache = HashMap::new();
+        cache.insert("111".to_string(), "schon abgeschrieben".to_string());
+        let got = untranscribed_voice(&db, "me@s.whatsapp.net", &cache, &HashSet::new()).unwrap();
+        // 111 is cached, 114 is a photo, 120/121 belong to another chat.
+        assert_eq!(
+            got,
+            vec![(112, "Media/c.opus".to_string()), (110, "Media/a.opus".to_string())]
+        );
+    }
+
+    #[test]
+    fn untranscribed_passes_over_failed_ids() {
+        let db = fake_chat_storage();
+        let skip: HashSet<i64> = [112].into_iter().collect();
+        let got = untranscribed_voice(&db, "me@s.whatsapp.net", &HashMap::new(), &skip).unwrap();
+        let ids: Vec<i64> = got.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, vec![111, 110]);
+    }
+
+    #[test]
+    fn untranscribed_refuses_a_chat_with_someone_else() {
+        let db = fake_chat_storage();
+        let err = untranscribed_voice(&db, "friend@s.whatsapp.net", &HashMap::new(), &HashSet::new())
+            .unwrap_err();
+        assert!(err.contains("not the chat with oneself"), "{err}");
+        assert!(
+            untranscribed_voice(&db, "nobody@s.whatsapp.net", &HashMap::new(), &HashSet::new())
+                .is_err()
+        );
+    }
 }
 
 #[cfg(test)]
@@ -931,6 +1073,10 @@ mod live_tests {
         assert!(meta.values().all(|r| r.sent_unix > 1_000_000_000));
 
         // Only reports when the export is configured on this machine.
+        match self_chat_untranscribed(usize::MAX, &HashSet::new()) {
+            Ok(p) => eprintln!("self chat: {} voice messages without transcript", p.len()),
+            Err(e) => panic!("self chat voice lookup failed: {e}"),
+        }
         match export_self_chat() {
             Ok(Some(n)) => eprintln!("self chat export: {n} messages"),
             Ok(None) => eprintln!("self chat export not configured"),
