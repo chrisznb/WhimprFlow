@@ -413,25 +413,72 @@ fn debug_log(line: &str) {
 }
 
 /// Keep the WhatsApp side files current while the app runs: date and chat for
-/// every transcript, and the opt-in self chat export. At startup and then every
-/// 30 minutes, so the files are fresh without the Hub ever being opened. Does
-/// nothing without access to WhatsApp's data.
+/// every transcript, transcripts for new voice messages of the self chat, and
+/// the opt-in self chat export. At startup and then every 30 minutes, so the
+/// files are fresh without the Hub ever being opened. Does nothing without
+/// access to WhatsApp's data.
 fn spawn_whatsapp_sync() {
-    std::thread::spawn(|| loop {
-        if whatsapp::access() == whatsapp::Access::Ok {
-            match whatsapp::sync_meta() {
-                Ok(n) if n > 0 => debug_log(&format!("wa_sync: meta for {n} transcripts")),
-                Ok(_) => {}
-                Err(e) => debug_log(&format!("wa_sync: meta failed: {e}")),
+    std::thread::spawn(|| {
+        // Voice messages that failed to transcribe in this run; retried after
+        // the next app start rather than every 30 minutes.
+        let mut failed = std::collections::HashSet::new();
+        loop {
+            if whatsapp::access() == whatsapp::Access::Ok {
+                match whatsapp::sync_meta() {
+                    Ok(n) if n > 0 => debug_log(&format!("wa_sync: meta for {n} transcripts")),
+                    Ok(_) => {}
+                    Err(e) => debug_log(&format!("wa_sync: meta failed: {e}")),
+                }
+                transcribe_self_chat(&mut failed);
+                match whatsapp::export_self_chat() {
+                    Ok(Some(n)) => debug_log(&format!("wa_sync: self chat, {n} messages")),
+                    Ok(None) => {}
+                    Err(e) => debug_log(&format!("wa_sync: self chat failed: {e}")),
+                }
             }
-            match whatsapp::export_self_chat() {
-                Ok(Some(n)) => debug_log(&format!("wa_sync: self chat, {n} messages")),
-                Ok(None) => {}
-                Err(e) => debug_log(&format!("wa_sync: self chat failed: {e}")),
+            std::thread::sleep(std::time::Duration::from_secs(30 * 60));
+        }
+    });
+}
+
+/// Transcribe a few voice messages of the self chat that have no transcript
+/// yet, so the export carries text instead of gaps. Only the configured self
+/// chat, never another one. At most `PER_PASS` per run, and only while the
+/// speech engine is free: before each message it checks that the user is not
+/// dictating and nothing else is being transcribed, and otherwise leaves the
+/// rest for the next pass.
+fn transcribe_self_chat(failed: &mut std::collections::HashSet<i64>) {
+    const PER_PASS: usize = 5;
+    if !hotkey::asr_free_for_background() {
+        return;
+    }
+    let pending = match whatsapp::self_chat_untranscribed(PER_PASS, failed) {
+        Ok(p) => p,
+        Err(e) => {
+            debug_log(&format!("wa_sync: self chat voice lookup failed: {e}"));
+            return;
+        }
+    };
+    let mut done = 0usize;
+    for v in pending {
+        if !hotkey::asr_free_for_background() {
+            debug_log("wa_sync: speech engine busy, rest next pass");
+            break;
+        }
+        match hotkey::transcribe_audio_file(&v.path) {
+            Ok(text) => {
+                whatsapp::cache_put(v.media_id, &text);
+                done += 1;
+            }
+            Err(e) => {
+                failed.insert(v.media_id);
+                debug_log(&format!("wa_sync: voice {} not transcribed: {e}", v.media_id));
             }
         }
-        std::thread::sleep(std::time::Duration::from_secs(30 * 60));
-    });
+    }
+    if done > 0 {
+        debug_log(&format!("wa_sync: transcribed {done} self chat voice messages"));
+    }
 }
 
 #[tauri::command]

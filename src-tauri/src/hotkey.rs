@@ -74,7 +74,7 @@ mod imp {
     use std::path::PathBuf;
     use super::DictEntryDto;
     use std::ptr::{null, null_mut};
-    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -207,6 +207,51 @@ mod imp {
     static LAST_DICTATION: OnceLock<Mutex<Option<(String, Instant)>>> = OnceLock::new();
     /// Whether WE paused the music player (so idle only resumes what we paused).
     static MUSIC_PAUSED: AtomicBool = AtomicBool::new(false);
+    /// File transcriptions in flight (Transcribe pane, WhatsApp). Dictation is
+    /// covered by the state machine, which is not idle until it has finished.
+    static FILE_ASR_RUNS: AtomicUsize = AtomicUsize::new(0);
+    /// Numbers the temporary WAV of each file transcription, so two running at
+    /// once never overwrite each other's audio.
+    static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+    /// Counts one file transcription for as long as it lives.
+    struct FileAsrRun;
+    impl FileAsrRun {
+        fn start() -> Self {
+            FILE_ASR_RUNS.fetch_add(1, Ordering::SeqCst);
+            FileAsrRun
+        }
+    }
+    impl Drop for FileAsrRun {
+        fn drop(&mut self) {
+            FILE_ASR_RUNS.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether background work may use the speech engine right now: the user is
+    /// not dictating (key up, state machine idle, last dictation a while ago),
+    /// the local model is loaded, and no other file is being transcribed.
+    pub fn asr_free_for_background() -> bool {
+        const QUIET_AFTER_DICTATION: Duration = Duration::from_secs(60);
+        if FN_IS_DOWN.load(Ordering::SeqCst) || FILE_ASR_RUNS.load(Ordering::SeqCst) > 0 {
+            return false;
+        }
+        if ASR.get().is_none() {
+            return false;
+        }
+        let idle = MACHINE
+            .get()
+            .map(|m| matches!(m.lock().unwrap().state(), DictationState::Idle))
+            .unwrap_or(false);
+        if !idle {
+            return false;
+        }
+        let recent = LAST_DICTATION
+            .get()
+            .and_then(|m| m.lock().unwrap().as_ref().map(|(_, at)| at.elapsed()))
+            .is_some_and(|ago| ago < QUIET_AFTER_DICTATION);
+        !recent
+    }
 
     /// Snapshot the paste target's focused-field text off-thread (AX can take a
     /// few ms — too slow for the event-tap callback).
@@ -1676,7 +1721,9 @@ return acted"#,
         if !src.exists() {
             return Err(format!("file not found: {path}"));
         }
-        let tmp = support_dir().join("tmp-transcribe.wav");
+        let _run = FileAsrRun::start();
+        let seq = TMP_SEQ.fetch_add(1, Ordering::SeqCst);
+        let tmp = support_dir().join(format!("tmp-transcribe-{seq}.wav"));
         let out = std::process::Command::new("afconvert")
             .arg("-f")
             .arg("WAVE")
@@ -1689,6 +1736,7 @@ return acted"#,
             .output()
             .map_err(|e| e.to_string())?;
         if !out.status.success() {
+            let _ = std::fs::remove_file(&tmp);
             return Err(format!(
                 "could not decode this file: {}",
                 String::from_utf8_lossy(&out.stderr).trim()
@@ -2979,7 +3027,7 @@ pub use imp::{
 };
 #[cfg(target_os = "macos")]
 pub use imp::{
-    ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
+    asr_free_for_background, ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
     cleanup_text_on_demand, dictation_key_down, dictation_key_up, download_model, file_transcripts,
     import_contacts, model_status, snippet_suggestions, transcribe_audio_file,
 };
@@ -3006,6 +3054,10 @@ pub fn snippet_suggestions() -> Vec<serde_json::Value> {
 #[cfg(not(target_os = "macos"))]
 pub fn transcribe_audio_file(_path: &str) -> Result<String, String> {
     Err("macOS only".to_string())
+}
+#[cfg(not(target_os = "macos"))]
+pub fn asr_free_for_background() -> bool {
+    false
 }
 #[cfg(not(target_os = "macos"))]
 pub fn file_transcripts() -> Vec<serde_json::Value> {
