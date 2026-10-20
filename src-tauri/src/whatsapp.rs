@@ -9,9 +9,22 @@
 //! database, `ChatStorage.sqlite`. The file names are hashes, so the database
 //! is the only way to say which message belongs to which chat.
 //!
-//! Only voice messages and the columns needed to label them are read. Message
-//! text is never touched, and the database is opened read-only so a half
-//! written read can never corrupt the user's chat history.
+//! Only voice messages and the columns needed to label them are read, and the
+//! database is opened read-only so a half written read can never corrupt the
+//! user's chat history. Message text is never touched, with one opt-in
+//! exception: the user's chat with themselves (see [`export_self_chat`]).
+//!
+//! # Files written
+//!
+//! All under `~/Library/Application Support/WhimprFlow`:
+//!
+//! - `whatsapp-transcripts.json`: `{media id: transcript}`, the cache. Format
+//!   unchanged so older versions keep reading it.
+//! - `whatsapp-transcripts-meta.json`: the same transcripts with time
+//!   (Europe/Berlin), chat and sender, see [`TranscriptMeta`]. Filled in from
+//!   ChatStorage by [`sync_meta`], including for transcripts older than the file.
+//! - `whatsapp-selfchat.json`: only when `whatsapp-export.json` names the own
+//!   chat; typed notes and voice messages of that one chat, by date.
 //!
 //! # Full Disk Access
 //!
@@ -334,10 +347,7 @@ fn contact_names() -> HashMap<String, String> {
 struct Cache(HashMap<String, String>);
 
 fn cache_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home)
-        .join("Library/Application Support/WhimprFlow")
-        .join("whatsapp-transcripts.json")
+    support_dir().join("whatsapp-transcripts.json")
 }
 
 fn load_cache() -> HashMap<String, String> {
@@ -356,10 +366,437 @@ pub fn cache_put(id: i64, text: &str) {
     if let Ok(json) = serde_json::to_string(&Cache(c)) {
         let _ = std::fs::write(cache_path(), json);
     }
+    // Date and chat for the new transcript. Best effort: the transcript itself
+    // is already safe in the cache, and the next sync picks up a miss.
+    if id >= 0 {
+        let _ = sync_meta();
+    }
 }
 
 pub fn cache_get(id: i64) -> Option<String> {
     load_cache().get(&id.to_string()).cloned()
+}
+
+// --- time ------------------------------------------------------------------
+
+/// Unix seconds as an ISO 8601 time in Europe/Berlin, with the offset spelled
+/// out (`2026-10-18T21:04:05+02:00`), so a reader can filter by local day
+/// without knowing anything about time zones.
+///
+/// Hand rolled rather than pulling in a time zone database: Germany follows the
+/// EU rule (summer time from the last Sunday of March to the last Sunday of
+/// October, switching at 01:00 UTC both ways), unchanged since 1996.
+pub fn berlin_iso(unix: i64) -> String {
+    let offset_h = if berlin_is_summer(unix) { 2 } else { 1 };
+    let local = unix + offset_h * 3600;
+    let (y, mo, d) = civil_from_days(local.div_euclid(86_400));
+    let secs = local.rem_euclid(86_400);
+    format!(
+        "{y:04}-{mo:02}-{d:02}T{:02}:{:02}:{:02}+{offset_h:02}:00",
+        secs / 3600,
+        secs % 3600 / 60,
+        secs % 60
+    )
+}
+
+fn berlin_is_summer(unix: i64) -> bool {
+    let (year, _, _) = civil_from_days(unix.div_euclid(86_400));
+    let start = last_sunday_utc(year, 3) + 3600;
+    let end = last_sunday_utc(year, 10) + 3600;
+    unix >= start && unix < end
+}
+
+/// Unix seconds of 00:00 UTC on the last Sunday of a month.
+fn last_sunday_utc(year: i64, month: i64) -> i64 {
+    // The last day of the month is the day before the 1st of the next one.
+    let (ny, nm) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+    let last = days_from_civil(ny, nm, 1) - 1;
+    // 1970-01-01 was a Thursday, so day 3 was the first Sunday.
+    let weekday = (last + 4).rem_euclid(7); // 0 = Sunday
+    (last - weekday) * 86_400
+}
+
+/// Days since 1970-01-01 for a calendar date (Howard Hinnant's algorithm).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
+}
+
+/// The inverse: calendar date for days since 1970-01-01.
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + if m <= 2 { 1 } else { 0 };
+    (y, m, d)
+}
+
+// --- transcript metadata ---------------------------------------------------
+
+/// One transcribed voice message: the text plus when, in which chat and
+/// whether it was sent by the user. Written to its own file so tools outside
+/// the app (a weekly report, say) can filter by date and chat without ever
+/// needing access to WhatsApp's database themselves.
+///
+/// Deliberately no sender ids or address book names: that would copy contact
+/// data out of WhatsApp's protected container for no use anyone asked for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TranscriptMeta {
+    pub text: String,
+    /// Europe/Berlin, ISO 8601 with offset.
+    pub sent_at: String,
+    /// The same moment as unix seconds, for sorting and arithmetic.
+    pub sent_unix: i64,
+    /// The chat's WhatsApp id, e.g. `49151...@s.whatsapp.net` or `...@g.us`.
+    pub chat_jid: String,
+    pub chat_name: String,
+    pub is_group: bool,
+    pub from_me: bool,
+    pub duration_s: i64,
+}
+
+/// The metadata file. A version number so a later format change can be told
+/// apart from this one.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct MetaFile {
+    version: u32,
+    /// Keyed by the same media row id as the transcript cache.
+    entries: std::collections::BTreeMap<String, TranscriptMeta>,
+}
+
+fn support_dir() -> PathBuf {
+    let home = std::env::var("HOME").unwrap_or_default();
+    PathBuf::from(home).join("Library/Application Support/WhimprFlow")
+}
+
+fn meta_path() -> PathBuf {
+    support_dir().join("whatsapp-transcripts-meta.json")
+}
+
+fn load_meta() -> MetaFile {
+    std::fs::read_to_string(meta_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<MetaFile>(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Write via a temporary file and rename, so another program reading the file
+/// at the same moment sees either the old or the new version, never half of it.
+///
+/// Readable by the user only (0600): the content comes out of a container
+/// macOS protects, and should not become readable to other accounts on the
+/// way out.
+fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = path.with_extension("json.tmp");
+    let _ = std::fs::remove_file(&tmp);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
+    f.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
+    drop(f);
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
+/// Columns of one voice message as the database has them, before the
+/// transcript is attached.
+struct MetaRow {
+    sent_unix: i64,
+    chat_jid: String,
+    chat_name: String,
+    is_group: bool,
+    from_me: bool,
+    duration_s: i64,
+}
+
+/// Look up chat, time and sender for a set of media row ids in as few queries
+/// as possible. Chunked because SQLite caps the number of `?` placeholders.
+fn query_meta(db: &rusqlite::Connection, ids: &[i64]) -> Result<HashMap<i64, MetaRow>, String> {
+    let mut out = HashMap::new();
+    for chunk in ids.chunks(500) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        let sql = format!(
+            "SELECT mi.Z_PK, m.ZMESSAGEDATE, cs.ZCONTACTJID, cs.ZPARTNERNAME,
+                    cs.ZSESSIONTYPE, m.ZISFROMME, mi.ZMOVIEDURATION
+             FROM ZWAMEDIAITEM mi
+             JOIN ZWAMESSAGE m ON mi.ZMESSAGE = m.Z_PK
+             JOIN ZWACHATSESSION cs ON m.ZCHATSESSION = cs.Z_PK
+             WHERE mi.Z_PK IN ({marks})"
+        );
+        let mut stmt = db.prepare(&sql).map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(rusqlite::params_from_iter(chunk.iter()), |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    MetaRow {
+                        sent_unix: apple_to_unix(r.get::<_, Option<f64>>(1)?.unwrap_or(0.0)),
+                        chat_jid: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                        chat_name: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
+                        is_group: r.get::<_, Option<i64>>(4)? == Some(1),
+                        from_me: r.get::<_, Option<i64>>(5)?.unwrap_or(0) == 1,
+                        duration_s: r.get::<_, Option<f64>>(6)?.unwrap_or(0.0) as i64,
+                    },
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        for row in rows {
+            let (id, meta) = row.map_err(|e| e.to_string())?;
+            out.insert(id, meta);
+        }
+    }
+    Ok(out)
+}
+
+/// Bring the metadata file in line with the transcript cache: every transcript
+/// that has no metadata yet gets it from ChatStorage. This is also the
+/// migration for transcripts made before the file existed - they are simply
+/// "missing" on the first run. Returns how many entries were added or changed.
+///
+/// A transcript whose message has since been deleted in WhatsApp cannot be
+/// dated any more and stays out of this file (it is still in the cache).
+pub fn sync_meta() -> Result<usize, String> {
+    let cache = load_cache();
+    let mut meta = load_meta();
+    let mut changed = 0usize;
+
+    // Text changed under an existing entry: just update the text.
+    for (id, text) in &cache {
+        if let Some(e) = meta.entries.get_mut(id) {
+            if &e.text != text {
+                e.text = text.clone();
+                changed += 1;
+            }
+        }
+    }
+
+    let missing: Vec<i64> = cache
+        .keys()
+        .filter(|id| !meta.entries.contains_key(*id))
+        .filter_map(|id| id.parse().ok())
+        .filter(|id: &i64| *id >= 0) // negative ids are test data
+        .collect();
+
+    if !missing.is_empty() {
+        let db = open_db()?;
+        let rows = query_meta(&db, &missing)?;
+        for (id, r) in rows {
+            let key = id.to_string();
+            let Some(text) = cache.get(&key) else { continue };
+            meta.entries.insert(
+                key,
+                TranscriptMeta {
+                    text: text.clone(),
+                    sent_at: berlin_iso(r.sent_unix),
+                    sent_unix: r.sent_unix,
+                    chat_jid: r.chat_jid,
+                    chat_name: r.chat_name,
+                    is_group: r.is_group,
+                    from_me: r.from_me,
+                    duration_s: r.duration_s,
+                },
+            );
+            changed += 1;
+        }
+    }
+
+    if changed > 0 || !meta_path().is_file() {
+        meta.version = 1;
+        let json = serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?;
+        write_atomic(&meta_path(), &json)?;
+    }
+    Ok(changed)
+}
+
+// --- self chat export ------------------------------------------------------
+
+/// Opt-in configuration for the self chat export, read from
+/// `whatsapp-export.json`. Without that file nothing is exported: message text
+/// of other chats is never written anywhere, and the own chat only when the
+/// user has named it.
+#[derive(Debug, Default, Deserialize)]
+struct ExportConfig {
+    /// The user's own WhatsApp id, e.g. `4915112345678@s.whatsapp.net` - the
+    /// chat with oneself ("Message yourself") carries it as its chat id.
+    #[serde(default)]
+    self_chat_jid: String,
+}
+
+fn export_config() -> ExportConfig {
+    std::fs::read_to_string(support_dir().join("whatsapp-export.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn self_chat_path() -> PathBuf {
+    support_dir().join("whatsapp-selfchat.json")
+}
+
+/// One message of the self chat: a typed note or a voice message.
+#[derive(Debug, Clone, Serialize)]
+pub struct SelfChatEntry {
+    /// The message row id.
+    pub id: i64,
+    /// "text" or "voice".
+    pub kind: &'static str,
+    pub sent_at: String,
+    pub sent_unix: i64,
+    /// The typed text, or the transcript of a voice message. `None` for a voice
+    /// message nobody has transcribed yet, so a reader can see the gap.
+    pub text: Option<String>,
+    /// Voice messages only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_s: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct SelfChatFile {
+    version: u32,
+    chat_jid: String,
+    exported_at: String,
+    /// Oldest first.
+    messages: Vec<SelfChatEntry>,
+}
+
+/// Refuse to export a chat that is not the chat with oneself.
+///
+/// The config file is plain user-writable JSON, so anything running as the user
+/// could put another chat's id there and have this app - which holds Full Disk
+/// Access - copy that conversation out of the protected container. The chat
+/// with oneself is told apart by its shape: a one to one chat (session type 0)
+/// in which not a single row is marked as sent by the user's own device being
+/// false or unknown. A real conversation fails that the moment the other side
+/// has written once. Strict on purpose: a false refusal only means no export
+/// and a line in the debug log.
+///
+/// Second line of defence: the export itself only ever reads rows sent by the
+/// user, so even a chat that slipped past this check gives away nobody else's
+/// words.
+fn check_is_self_chat(db: &rusqlite::Connection, jid: &str) -> Result<(), String> {
+    let (sessions, not_one_to_one, incoming): (i64, i64, i64) = db
+        .query_row(
+            "SELECT COUNT(DISTINCT cs.Z_PK),
+                    COALESCE(SUM(COALESCE(cs.ZSESSIONTYPE, 0) != 0), 0),
+                    (SELECT COUNT(*) FROM ZWAMESSAGE m
+                     JOIN ZWACHATSESSION c ON m.ZCHATSESSION = c.Z_PK
+                     WHERE c.ZCONTACTJID = ?1 AND COALESCE(m.ZISFROMME, 0) != 1)
+             FROM ZWACHATSESSION cs WHERE cs.ZCONTACTJID = ?1",
+            [jid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    if sessions == 0 {
+        return Err("self_chat_jid: no chat with this id".into());
+    }
+    if not_one_to_one > 0 || incoming > 0 {
+        return Err(format!(
+            "self_chat_jid is not the chat with oneself ({incoming} incoming messages); not exported"
+        ));
+    }
+    Ok(())
+}
+
+/// Write every message of the self chat, oldest first, to
+/// `whatsapp-selfchat.json`. Returns the number of messages, or `None` when the
+/// export is not configured.
+pub fn export_self_chat() -> Result<Option<usize>, String> {
+    let jid = export_config().self_chat_jid.trim().to_string();
+    if jid.is_empty() {
+        return Ok(None);
+    }
+    let db = open_db()?;
+    // One read transaction: the check and the export see the same snapshot of
+    // the database, so nothing can change between "this is the self chat" and
+    // reading it.
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    check_is_self_chat(&tx, &jid)?;
+    let mut stmt = tx
+        .prepare(
+            "SELECT m.Z_PK, m.ZMESSAGEDATE, m.ZTEXT, mi.Z_PK, mi.ZMEDIALOCALPATH,
+                    mi.ZMOVIEDURATION
+             FROM ZWAMESSAGE m
+             JOIN ZWACHATSESSION cs ON m.ZCHATSESSION = cs.Z_PK
+             LEFT JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE = m.Z_PK
+             WHERE cs.ZCONTACTJID = ?1 AND m.ZISFROMME = 1
+             ORDER BY m.ZMESSAGEDATE ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let cache = load_cache();
+    let rows = stmt
+        .query_map([&jid], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                apple_to_unix(r.get::<_, Option<f64>>(1)?.unwrap_or(0.0)),
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<f64>>(5)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut messages = Vec::new();
+    for row in rows {
+        let (id, sent_unix, text, media_id, media_path, dur) = row.map_err(|e| e.to_string())?;
+        let is_voice = media_path.as_deref().is_some_and(|p| p.ends_with(".opus"));
+        let entry = if is_voice {
+            SelfChatEntry {
+                id,
+                kind: "voice",
+                sent_at: berlin_iso(sent_unix),
+                sent_unix,
+                // The transcript cache is keyed by the media row, not the
+                // message row.
+                text: media_id.and_then(|m| cache.get(&m.to_string()).cloned()),
+                duration_s: Some(dur.unwrap_or(0.0) as i64),
+            }
+        } else {
+            // Images, stickers, deleted messages and the like carry no text
+            // worth exporting; a photo caption does and is kept.
+            let Some(text) = text.filter(|t| !t.trim().is_empty()) else {
+                continue;
+            };
+            SelfChatEntry {
+                id,
+                kind: "text",
+                sent_at: berlin_iso(sent_unix),
+                sent_unix,
+                text: Some(text),
+                duration_s: None,
+            }
+        };
+        messages.push(entry);
+    }
+
+    let count = messages.len();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let file = SelfChatFile {
+        version: 1,
+        chat_jid: jid,
+        exported_at: berlin_iso(now),
+        messages,
+    };
+    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    write_atomic(&self_chat_path(), &json)?;
+    Ok(Some(count))
 }
 
 #[cfg(test)]
@@ -371,6 +808,51 @@ mod tests {
         // 0 in Core Data is 2001-01-01, which is 978307200 in unix time.
         assert_eq!(apple_to_unix(0.0), 978_307_200);
         assert_eq!(apple_to_unix(1.0), 978_307_201);
+    }
+
+    #[test]
+    fn berlin_time_follows_summer_and_winter_time() {
+        // 2026-01-15 12:00 UTC: winter, +01:00.
+        assert_eq!(berlin_iso(1_768_478_400), "2026-01-15T13:00:00+01:00");
+        // 2026-07-01 10:00 UTC: summer, +02:00.
+        assert_eq!(berlin_iso(1_782_900_000), "2026-07-01T12:00:00+02:00");
+        // Summer time 2026 starts 2026-03-29 01:00 UTC.
+        assert_eq!(berlin_iso(1_774_745_999), "2026-03-29T01:59:59+01:00");
+        assert_eq!(berlin_iso(1_774_746_000), "2026-03-29T03:00:00+02:00");
+        // And ends 2026-10-25 01:00 UTC.
+        assert_eq!(berlin_iso(1_792_889_999), "2026-10-25T02:59:59+02:00");
+        assert_eq!(berlin_iso(1_792_890_000), "2026-10-25T02:00:00+01:00");
+        // Late evening UTC is already the next day in Berlin.
+        assert_eq!(berlin_iso(1_767_225_600 - 1800), "2026-01-01T00:30:00+01:00");
+    }
+
+    #[test]
+    fn civil_dates_round_trip() {
+        for days in [-1000, 0, 365, 11_016, 20_746, 30_000] {
+            let (y, m, d) = civil_from_days(days);
+            assert_eq!(days_from_civil(y, m, d), days);
+        }
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+        assert_eq!(days_from_civil(2000, 3, 1), 11_017);
+    }
+
+    #[test]
+    fn meta_entries_serialize_with_readable_keys() {
+        let m = TranscriptMeta {
+            text: "Haferflocken mit Sojamilch".into(),
+            sent_at: berlin_iso(1_782_900_000),
+            sent_unix: 1_782_900_000,
+            chat_jid: "4915100000000@s.whatsapp.net".into(),
+            chat_name: "Ich".into(),
+            is_group: false,
+            from_me: true,
+            duration_s: 12,
+        };
+        let json = serde_json::to_string(&m).unwrap();
+        assert!(json.contains("\"sent_at\":\"2026-07-01T12:00:00+02:00\""));
+        assert!(json.contains("\"chat_jid\":\"4915100000000@s.whatsapp.net\""));
+        let back: TranscriptMeta = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, m);
     }
 
     #[test]
@@ -432,5 +914,27 @@ mod live_tests {
         }
         eprintln!("{total} messages, {with_path} resolved to a file, {with_sender} named a sender");
         assert!(with_path > 0, "not a single audio file could be located");
+
+        // The metadata query must find every voice message it is asked about,
+        // with a chat id and a plausible date.
+        let ids: Vec<i64> = chats
+            .iter()
+            .flat_map(|c| messages(c.id).unwrap_or_default())
+            .map(|m| m.id)
+            .take(50)
+            .collect();
+        let db = open_db().expect("db");
+        let meta = query_meta(&db, &ids).expect("meta query");
+        assert_eq!(meta.len(), ids.len(), "metadata missing for some ids");
+        let with_jid = meta.values().filter(|r| !r.chat_jid.is_empty()).count();
+        eprintln!("meta for {} ids, {with_jid} with a chat id", meta.len());
+        assert!(meta.values().all(|r| r.sent_unix > 1_000_000_000));
+
+        // Only reports when the export is configured on this machine.
+        match export_self_chat() {
+            Ok(Some(n)) => eprintln!("self chat export: {n} messages"),
+            Ok(None) => eprintln!("self chat export not configured"),
+            Err(e) => panic!("self chat export failed: {e}"),
+        }
     }
 }

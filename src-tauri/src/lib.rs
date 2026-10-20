@@ -412,6 +412,28 @@ fn debug_log(line: &str) {
     }
 }
 
+/// Keep the WhatsApp side files current while the app runs: date and chat for
+/// every transcript, and the opt-in self chat export. At startup and then every
+/// 30 minutes, so the files are fresh without the Hub ever being opened. Does
+/// nothing without access to WhatsApp's data.
+fn spawn_whatsapp_sync() {
+    std::thread::spawn(|| loop {
+        if whatsapp::access() == whatsapp::Access::Ok {
+            match whatsapp::sync_meta() {
+                Ok(n) if n > 0 => debug_log(&format!("wa_sync: meta for {n} transcripts")),
+                Ok(_) => {}
+                Err(e) => debug_log(&format!("wa_sync: meta failed: {e}")),
+            }
+            match whatsapp::export_self_chat() {
+                Ok(Some(n)) => debug_log(&format!("wa_sync: self chat, {n} messages")),
+                Ok(None) => {}
+                Err(e) => debug_log(&format!("wa_sync: self chat failed: {e}")),
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(30 * 60));
+    });
+}
+
 #[tauri::command]
 async fn wa_chats() -> Result<Vec<whatsapp::Chat>, String> {
     tauri::async_runtime::spawn_blocking(whatsapp::chats)
@@ -907,6 +929,8 @@ pub fn run() {
 
             // Wire the Fn key to the pill via the real state machine.
             hotkey::install(app.handle().clone());
+
+            spawn_whatsapp_sync();
 
             // Global transform shortcuts (Alt+1/2/3 by default).
             register_transform_shortcuts(app.handle());
