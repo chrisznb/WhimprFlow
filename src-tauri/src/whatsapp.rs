@@ -443,10 +443,13 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 // --- transcript metadata ---------------------------------------------------
 
-/// Everything known about one transcribed voice message: the text plus when,
-/// where and from whom. Written to its own file so tools outside the app (a
-/// weekly report, say) can filter by date and chat without ever needing access
-/// to WhatsApp's database themselves.
+/// One transcribed voice message: the text plus when, in which chat and
+/// whether it was sent by the user. Written to its own file so tools outside
+/// the app (a weekly report, say) can filter by date and chat without ever
+/// needing access to WhatsApp's database themselves.
+///
+/// Deliberately no sender ids or address book names: that would copy contact
+/// data out of WhatsApp's protected container for no use anyone asked for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TranscriptMeta {
     pub text: String,
@@ -459,10 +462,6 @@ pub struct TranscriptMeta {
     pub chat_name: String,
     pub is_group: bool,
     pub from_me: bool,
-    /// Sender id in a group or for an incoming message; empty when from me.
-    pub sender_jid: String,
-    /// Sender's name from the address book, when known.
-    pub sender_name: String,
     pub duration_s: i64,
 }
 
@@ -493,9 +492,24 @@ fn load_meta() -> MetaFile {
 
 /// Write via a temporary file and rename, so another program reading the file
 /// at the same moment sees either the old or the new version, never half of it.
+///
+/// Readable by the user only (0600): the content comes out of a container
+/// macOS protects, and should not become readable to other accounts on the
+/// way out.
 fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(&tmp);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
+    f.write_all(contents.as_bytes()).map_err(|e| e.to_string())?;
+    drop(f);
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
@@ -507,7 +521,6 @@ struct MetaRow {
     chat_name: String,
     is_group: bool,
     from_me: bool,
-    sender_jid: String,
     duration_s: i64,
 }
 
@@ -519,20 +532,15 @@ fn query_meta(db: &rusqlite::Connection, ids: &[i64]) -> Result<HashMap<i64, Met
         let marks = vec!["?"; chunk.len()].join(",");
         let sql = format!(
             "SELECT mi.Z_PK, m.ZMESSAGEDATE, cs.ZCONTACTJID, cs.ZPARTNERNAME,
-                    cs.ZSESSIONTYPE, m.ZISFROMME, gm.ZMEMBERJID, m.ZFROMJID,
-                    mi.ZMOVIEDURATION
+                    cs.ZSESSIONTYPE, m.ZISFROMME, mi.ZMOVIEDURATION
              FROM ZWAMEDIAITEM mi
              JOIN ZWAMESSAGE m ON mi.ZMESSAGE = m.Z_PK
              JOIN ZWACHATSESSION cs ON m.ZCHATSESSION = cs.Z_PK
-             LEFT JOIN ZWAGROUPMEMBER gm ON m.ZGROUPMEMBER = gm.Z_PK
              WHERE mi.Z_PK IN ({marks})"
         );
         let mut stmt = db.prepare(&sql).map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map(rusqlite::params_from_iter(chunk.iter()), |r| {
-                let from_me = r.get::<_, Option<i64>>(5)?.unwrap_or(0) == 1;
-                let member: Option<String> = r.get(6)?;
-                let from: Option<String> = r.get(7)?;
                 Ok((
                     r.get::<_, i64>(0)?,
                     MetaRow {
@@ -540,13 +548,8 @@ fn query_meta(db: &rusqlite::Connection, ids: &[i64]) -> Result<HashMap<i64, Met
                         chat_jid: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                         chat_name: r.get::<_, Option<String>>(3)?.unwrap_or_default(),
                         is_group: r.get::<_, Option<i64>>(4)? == Some(1),
-                        from_me,
-                        sender_jid: if from_me {
-                            String::new()
-                        } else {
-                            member.or(from).unwrap_or_default()
-                        },
-                        duration_s: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0) as i64,
+                        from_me: r.get::<_, Option<i64>>(5)?.unwrap_or(0) == 1,
+                        duration_s: r.get::<_, Option<f64>>(6)?.unwrap_or(0.0) as i64,
                     },
                 ))
             })
@@ -591,15 +594,9 @@ pub fn sync_meta() -> Result<usize, String> {
     if !missing.is_empty() {
         let db = open_db()?;
         let rows = query_meta(&db, &missing)?;
-        let names = if rows.values().any(|r| !r.sender_jid.is_empty()) {
-            contact_names()
-        } else {
-            HashMap::new()
-        };
         for (id, r) in rows {
             let key = id.to_string();
             let Some(text) = cache.get(&key) else { continue };
-            let sender_name = names.get(&r.sender_jid).cloned().unwrap_or_default();
             meta.entries.insert(
                 key,
                 TranscriptMeta {
@@ -610,8 +607,6 @@ pub fn sync_meta() -> Result<usize, String> {
                     chat_name: r.chat_name,
                     is_group: r.is_group,
                     from_me: r.from_me,
-                    sender_jid: r.sender_jid,
-                    sender_name,
                     duration_s: r.duration_s,
                 },
             );
@@ -678,6 +673,41 @@ struct SelfChatFile {
     messages: Vec<SelfChatEntry>,
 }
 
+/// Refuse to export a chat that is not the chat with oneself.
+///
+/// The config file is plain user-writable JSON, so anything running as the user
+/// could put another chat's id there and have this app - which holds Full Disk
+/// Access - copy that conversation out of the protected container. The chat
+/// with oneself is told apart by its shape: a one to one chat in which no
+/// message ever came in from someone else. A real conversation fails that the
+/// moment the other side has written once.
+fn check_is_self_chat(db: &rusqlite::Connection, jid: &str) -> Result<(), String> {
+    let (sessions, groups, incoming): (i64, i64, i64) = db
+        .query_row(
+            "SELECT COUNT(DISTINCT cs.Z_PK),
+                    COALESCE(SUM(cs.ZSESSIONTYPE = 1), 0),
+                    (SELECT COUNT(*) FROM ZWAMESSAGE m
+                     JOIN ZWACHATSESSION c ON m.ZCHATSESSION = c.Z_PK
+                     WHERE c.ZCONTACTJID = ?1 AND m.ZISFROMME = 0
+                       AND (m.ZTEXT IS NOT NULL
+                            OR EXISTS (SELECT 1 FROM ZWAMEDIAITEM mi
+                                       WHERE mi.ZMESSAGE = m.Z_PK)))
+             FROM ZWACHATSESSION cs WHERE cs.ZCONTACTJID = ?1",
+            [jid],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .map_err(|e| e.to_string())?;
+    if sessions == 0 {
+        return Err("self_chat_jid: no chat with this id".into());
+    }
+    if groups > 0 || incoming > 0 {
+        return Err(format!(
+            "self_chat_jid is not the chat with oneself ({incoming} incoming messages); not exported"
+        ));
+    }
+    Ok(())
+}
+
 /// Write every message of the self chat, oldest first, to
 /// `whatsapp-selfchat.json`. Returns the number of messages, or `None` when the
 /// export is not configured.
@@ -687,6 +717,7 @@ pub fn export_self_chat() -> Result<Option<usize>, String> {
         return Ok(None);
     }
     let db = open_db()?;
+    check_is_self_chat(&db, &jid)?;
     let mut stmt = db
         .prepare(
             "SELECT m.Z_PK, m.ZMESSAGEDATE, m.ZTEXT, mi.Z_PK, mi.ZMEDIALOCALPATH,
@@ -808,8 +839,6 @@ mod tests {
             chat_name: "Ich".into(),
             is_group: false,
             from_me: true,
-            sender_jid: String::new(),
-            sender_name: String::new(),
             duration_s: 12,
         };
         let json = serde_json::to_string(&m).unwrap();
