@@ -443,7 +443,8 @@ fn spawn_whatsapp_sync() {
 
 /// Transcribe a few voice messages of the self chat that have no transcript
 /// yet, so the export carries text instead of gaps. Only the configured self
-/// chat, never another one. At most `PER_PASS` per run, and only while the
+/// chat, never another one, and only with the local model: no audio leaves the
+/// machine without the user asking for it. At most `PER_PASS` per run, and only while the
 /// speech engine is free: before each message it checks that the user is not
 /// dictating and nothing else is being transcribed, and otherwise leaves the
 /// rest for the next pass.
@@ -465,7 +466,7 @@ fn transcribe_self_chat(failed: &mut std::collections::HashSet<i64>) {
             debug_log("wa_sync: speech engine busy, rest next pass");
             break;
         }
-        match hotkey::transcribe_audio_file(&v.path) {
+        match hotkey::transcribe_audio_file_local(&v.path) {
             Ok(text) => {
                 whatsapp::cache_put(v.media_id, &text);
                 done += 1;

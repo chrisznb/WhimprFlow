@@ -1717,6 +1717,18 @@ return acted"#,
     /// Transcribe an audio file (m4a/mp3/wav/aiff/…): convert with the built-in
     /// afconvert, then run the configured engine (cloud first, local fallback).
     pub fn transcribe_audio_file(path: &str) -> Result<String, String> {
+        transcribe_file_with(path, true)
+    }
+
+    /// Background variant: local model only, never the cloud engine, and not
+    /// added to the Transcribe pane's list. For audio the user did not hand
+    /// over themselves (WhatsApp self chat), so nothing leaves the machine
+    /// without an explicit action.
+    pub fn transcribe_audio_file_local(path: &str) -> Result<String, String> {
+        transcribe_file_with(path, false)
+    }
+
+    fn transcribe_file_with(path: &str, interactive: bool) -> Result<String, String> {
         let src = std::path::Path::new(path);
         if !src.exists() {
             return Err(format!("file not found: {path}"));
@@ -1747,7 +1759,7 @@ return acted"#,
 
         let settings = current_settings();
         // Cloud engine first when selected and available.
-        if matches!(settings.asr_mode, whimpr_core::AsrMode::Cloud) {
+        if interactive && matches!(settings.asr_mode, whimpr_core::AsrMode::Cloud) {
             if let Some(key) = read_openai_key() {
                 let t0 = Instant::now();
                 match whimpr_cleanup::transcribe_cloud(
@@ -1788,10 +1800,12 @@ return acted"#,
             t.text.len()
         );
         let text = apply_dictionary_spellings(&t.text);
-        save_file_transcript(
-            src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
-            &text,
-        );
+        if interactive {
+            save_file_transcript(
+                src.file_name().and_then(|f| f.to_str()).unwrap_or("audio"),
+                &text,
+            );
+        }
         Ok(text)
     }
 
@@ -3030,6 +3044,7 @@ pub use imp::{
     asr_free_for_background, ask_mode_down, ask_mode_up, check_and_install_update, command_mode_down, command_mode_up,
     cleanup_text_on_demand, dictation_key_down, dictation_key_up, download_model, file_transcripts,
     import_contacts, model_status, snippet_suggestions, transcribe_audio_file,
+    transcribe_audio_file_local,
 };
 #[cfg(not(target_os = "macos"))]
 pub fn dictation_key_down() {}
@@ -3053,6 +3068,10 @@ pub fn snippet_suggestions() -> Vec<serde_json::Value> {
 }
 #[cfg(not(target_os = "macos"))]
 pub fn transcribe_audio_file(_path: &str) -> Result<String, String> {
+    Err("macOS only".to_string())
+}
+#[cfg(not(target_os = "macos"))]
+pub fn transcribe_audio_file_local(_path: &str) -> Result<String, String> {
     Err("macOS only".to_string())
 }
 #[cfg(not(target_os = "macos"))]
