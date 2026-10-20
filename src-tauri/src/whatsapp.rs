@@ -678,20 +678,23 @@ struct SelfChatFile {
 /// The config file is plain user-writable JSON, so anything running as the user
 /// could put another chat's id there and have this app - which holds Full Disk
 /// Access - copy that conversation out of the protected container. The chat
-/// with oneself is told apart by its shape: a one to one chat in which no
-/// message ever came in from someone else. A real conversation fails that the
-/// moment the other side has written once.
+/// with oneself is told apart by its shape: a one to one chat (session type 0)
+/// in which not a single row is marked as sent by the user's own device being
+/// false or unknown. A real conversation fails that the moment the other side
+/// has written once. Strict on purpose: a false refusal only means no export
+/// and a line in the debug log.
+///
+/// Second line of defence: the export itself only ever reads rows sent by the
+/// user, so even a chat that slipped past this check gives away nobody else's
+/// words.
 fn check_is_self_chat(db: &rusqlite::Connection, jid: &str) -> Result<(), String> {
-    let (sessions, groups, incoming): (i64, i64, i64) = db
+    let (sessions, not_one_to_one, incoming): (i64, i64, i64) = db
         .query_row(
             "SELECT COUNT(DISTINCT cs.Z_PK),
-                    COALESCE(SUM(cs.ZSESSIONTYPE = 1), 0),
+                    COALESCE(SUM(COALESCE(cs.ZSESSIONTYPE, 0) != 0), 0),
                     (SELECT COUNT(*) FROM ZWAMESSAGE m
                      JOIN ZWACHATSESSION c ON m.ZCHATSESSION = c.Z_PK
-                     WHERE c.ZCONTACTJID = ?1 AND m.ZISFROMME = 0
-                       AND (m.ZTEXT IS NOT NULL
-                            OR EXISTS (SELECT 1 FROM ZWAMEDIAITEM mi
-                                       WHERE mi.ZMESSAGE = m.Z_PK)))
+                     WHERE c.ZCONTACTJID = ?1 AND COALESCE(m.ZISFROMME, 0) != 1)
              FROM ZWACHATSESSION cs WHERE cs.ZCONTACTJID = ?1",
             [jid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
@@ -700,7 +703,7 @@ fn check_is_self_chat(db: &rusqlite::Connection, jid: &str) -> Result<(), String
     if sessions == 0 {
         return Err("self_chat_jid: no chat with this id".into());
     }
-    if groups > 0 || incoming > 0 {
+    if not_one_to_one > 0 || incoming > 0 {
         return Err(format!(
             "self_chat_jid is not the chat with oneself ({incoming} incoming messages); not exported"
         ));
@@ -717,15 +720,19 @@ pub fn export_self_chat() -> Result<Option<usize>, String> {
         return Ok(None);
     }
     let db = open_db()?;
-    check_is_self_chat(&db, &jid)?;
-    let mut stmt = db
+    // One read transaction: the check and the export see the same snapshot of
+    // the database, so nothing can change between "this is the self chat" and
+    // reading it.
+    let tx = db.unchecked_transaction().map_err(|e| e.to_string())?;
+    check_is_self_chat(&tx, &jid)?;
+    let mut stmt = tx
         .prepare(
             "SELECT m.Z_PK, m.ZMESSAGEDATE, m.ZTEXT, mi.Z_PK, mi.ZMEDIALOCALPATH,
                     mi.ZMOVIEDURATION
              FROM ZWAMESSAGE m
              JOIN ZWACHATSESSION cs ON m.ZCHATSESSION = cs.Z_PK
              LEFT JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE = m.Z_PK
-             WHERE cs.ZCONTACTJID = ?1
+             WHERE cs.ZCONTACTJID = ?1 AND m.ZISFROMME = 1
              ORDER BY m.ZMESSAGEDATE ASC",
         )
         .map_err(|e| e.to_string())?;
